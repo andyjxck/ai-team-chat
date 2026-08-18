@@ -1,0 +1,71 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { usePathname } from "next/navigation";
+import { ChatSidebar } from "./chat-sidebar";
+import { cn } from "@/lib/utils";
+import { Menu, X } from "lucide-react";
+
+type SidebarChat = {
+  id: string;
+  name: string;
+  type: string;
+  routingMode: string;
+  isDefault: boolean;
+  members: { id: string; name: string; avatar: string | null; role: string }[];
+};
+
+export function ChatShell({
+  chats,
+  children,
+}: {
+  chats: SidebarChat[];
+  children: React.ReactNode;
+}) {
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const pathname = usePathname();
+
+  // Close drawer when route changes
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [pathname]);
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-background">
+      {/* Mobile overlay */}
+      {drawerOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/50 md:hidden"
+          onClick={() => setDrawerOpen(false)}
+        />
+      )}
+
+      {/* Sidebar — fixed on desktop, slide-in drawer on mobile */}
+      <div
+        className={cn(
+          "fixed inset-y-0 left-0 z-40 transform transition-transform duration-200 md:relative md:translate-x-0",
+          drawerOpen ? "translate-x-0" : "-translate-x-full",
+        )}
+      >
+        <ChatSidebar chats={chats} onClose={() => setDrawerOpen(false)} />
+      </div>
+
+      {/* Main content */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Mobile top bar */}
+        <div className="flex items-center gap-3 border-b border-border px-3 py-2 md:hidden">
+          <button
+            onClick={() => setDrawerOpen(true)}
+            className="flex h-9 w-9 items-center justify-center rounded-md hover:bg-accent"
+            aria-label="Open menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <span className="text-sm font-semibold">AI Team Chat</span>
+        </div>
+
+        <div className="flex flex-1 flex-col overflow-hidden">{children}</div>
+      </div>
+    </div>
+  );
+}

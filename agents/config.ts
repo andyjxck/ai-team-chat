@@ -15,6 +15,8 @@ export type AgentConfig = {
   persona: string;
   tools: string[];
   model?: string;
+  capabilities: string[];
+  objective: string;
 };
 
 // Common GitHub tools for all agents
@@ -57,6 +59,8 @@ export const AGENT_CONFIGS: AgentConfig[] = [
       "proactive_message",
       ...GITHUB_TOOLS,
     ],
+    capabilities: ["social-strategy", "trend-analysis"],
+    objective: "Increase brand engagement"
   },
   {
     id: "leo",
@@ -75,6 +79,8 @@ export const AGENT_CONFIGS: AgentConfig[] = [
       "proactive_message",
       ...GITHUB_TOOLS,
     ],
+    capabilities: ["market-scanning", "revenue-modeling"],
+    objective: "Identify high-value leads"
   },
   {
     id: "sally",
@@ -91,6 +97,8 @@ export const AGENT_CONFIGS: AgentConfig[] = [
       ...GITHUB_TOOLS,
       "draft_action",
     ],
+    capabilities: ["seo-optimization", "technical-web-audit"],
+    objective: "Maximise organic traffic"
   },
   {
     id: "evie",
@@ -121,6 +129,8 @@ export const AGENT_CONFIGS: AgentConfig[] = [
       "message_agent",
       "draft_action",
     ],
+    capabilities: ["coordination", "system-governance"],
+    objective: "Maintain team efficiency"
   },
   {
     id: "lex",
@@ -137,6 +147,8 @@ export const AGENT_CONFIGS: AgentConfig[] = [
       ...GITHUB_TOOLS,
       "draft_action",
     ],
+    capabilities: ["privacy-compliance", "contract-drafting"],
+    objective: "Ensure legal compliance"
   },
   {
     id: "zack",
@@ -154,6 +166,8 @@ export const AGENT_CONFIGS: AgentConfig[] = [
       ...CODING_TOOLS,
       "draft_action",
     ],
+    capabilities: ["code-review", "deployment-management"],
+    objective: "Ship clean, robust code"
   },
   {
     id: "kevin",
@@ -170,6 +184,8 @@ export const AGENT_CONFIGS: AgentConfig[] = [
       ...CODING_TOOLS,
       "draft_action",
     ],
+    capabilities: ["architecture-design", "refactoring"],
+    objective: "System scalability"
   },
   {
     id: "beepbop",
@@ -186,6 +202,8 @@ export const AGENT_CONFIGS: AgentConfig[] = [
       ...CODING_TOOLS,
       "draft_action",
     ],
+    capabilities: ["ui-development", "interactive-design"],
+    objective: "Enhance user experience"
   },
 ];
 

@@ -1,6 +1,6 @@
 import { serperSearch } from "./serper";
 import { webFetch } from "./web-fetch";
-import { memorySave, memoryLoad } from "./memory";
+import { memorySave } from "./memory";
 import { imageGen } from "./image-gen";
 import { leadsCreate, leadsUpdate, leadsList } from "./leads";
 import { contactsCreate, contactsSearch } from "./contacts";
@@ -33,7 +33,6 @@ export const ALL_TOOLS = {
   serper_search: serperSearch,
   web_fetch: webFetch,
   memory_save: memorySave,
-  memory_load: memoryLoad,
   image_gen: imageGen,
   leads_create: leadsCreate,
   leads_update: leadsUpdate,

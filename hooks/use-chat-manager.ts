@@ -48,7 +48,6 @@ const TOOL_ACTIVITIES: Record<string, (args: Record<string, unknown>) => string>
   calendar_create: () => "creating a calendar event",
   calendar_list: () => "checking calendar",
   memory_save: () => "saving to memory",
-  memory_load: () => "loading memory",
   draft_action: () => "preparing a draft",
   message_agent: (a) => `messaging ${a.agentId ?? "an agent"}`,
 };

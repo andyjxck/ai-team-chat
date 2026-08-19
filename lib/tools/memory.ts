@@ -5,7 +5,7 @@ import { nanoid } from "nanoid";
 
 export const memorySave = tool({
   description:
-    "Save a note to your persistent memory. Use this to remember user preferences, context, or important details for future conversations.",
+    "Save a note to your persistent memory. Your existing memories are already loaded into your context — you don't need to load them. Use this only to SAVE new memories or update existing ones.",
   inputSchema: z.object({
     key: z.string().describe("A short key to identify this memory"),
     value: z.string().describe("The content to remember"),
@@ -38,26 +38,15 @@ export const memorySave = tool({
   },
 });
 
-export const memoryLoad = tool({
-  description:
-    "Load notes from your persistent memory. Retrieve a specific note by key, or all notes if no key is provided.",
-  inputSchema: z.object({
-    key: z.string().optional().describe("The specific key to load, or omit to load all notes"),
-  }),
-  execute: async ({ key }) => {
-    const agentId = (globalThis as Record<string, unknown>).__currentAgentId as string;
-    if (!agentId) return { error: "No agent context" };
+// Server-side helper: load all memories for an agent (used to inject into system prompt)
+export async function loadAgentMemory(agentId: string): Promise<string> {
+  const { data } = await supabase
+    .from("memory")
+    .select("key, value")
+    .eq("agent_id", agentId);
 
-    if (key) {
-      const { data } = await supabase
-        .from("memory")
-        .select("*")
-        .eq("agent_id", agentId)
-        .eq("key", key);
-      return { notes: data ?? [] };
-    }
+  if (!data || data.length === 0) return "";
 
-    const { data } = await supabase.from("memory").select("*").eq("agent_id", agentId);
-    return { notes: data ?? [] };
-  },
-});
+  const lines = data.map((m: { key: string; value: string }) => `- ${m.key}: ${m.value}`);
+  return `\n## Your Memories (auto-loaded)\n${lines.join("\n")}\n`;
+}

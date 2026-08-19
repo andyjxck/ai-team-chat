@@ -4,6 +4,7 @@ import type { Chat, ChatMember, Message } from "@/db/schema-types";
 import { getModel, advanceFallbackModel, isRateLimitError, isModelError, markModelSuccess } from "@/lib/llm";
 import { getAgentConfig } from "@/agents/config";
 import { getToolsForAgent } from "@/lib/tools";
+import { loadAgentMemory } from "@/lib/tools/memory";
 import { nanoid } from "nanoid";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -179,7 +180,7 @@ If you're unsure whether the user wants you to take action, ASK them first inste
 
     const result = streamText({
       model,
-      system: config.persona + toolInstructions,
+      system: config.persona + toolInstructions + await loadAgentMemory(agentId),
       messages: [...historyMessages.slice(0, -1), { role: "user", content } as ModelMessage],
       tools,
       stopWhen: isStepCount(isCoder ? 50 : 30),
@@ -266,6 +267,14 @@ async function handleGroup(
     `### ${c!.name} (id: ${c!.id})\nRole: ${c!.role}\nPersonality: ${c!.persona}`
   ).join("\n\n");
 
+  // Load memories for all participating agents (auto-injected, no tool call needed)
+  const memorySections = await Promise.all(
+    configs.map((c) => loadAgentMemory(c!.id))
+  );
+  const memoryBlock = memorySections.filter(Boolean).length > 0
+    ? `\n## Agent Memories (auto-loaded)\n${memorySections.filter(Boolean).join("\n")}`
+    : "";
+
   // Fetch opened repos so agents know what they can access
   const isCodingTeam = chatId === "coding-team";
   const isAllTeam = chatId === "all-team";
@@ -306,6 +315,7 @@ ${agentRoster}
 
 ## Agent Personas
 ${personaSections}
+${memoryBlock}
 
 ## Safety & Content Rules
 ALL agents MUST keep responses PG-rated and family-friendly at ALL times:

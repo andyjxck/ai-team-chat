@@ -12,19 +12,11 @@
 export async function runEvolutionCycle() {
   console.log("Starting autonomous evolution cycle...");
 
-  // 1. Audit Infrastructure
-  // In a real environment, this would call netlify_list_deploys()
-  // and trigger repairs if builds are failing.
-  
-  // 2. Performance Audit (Placeholder for integration)
-  // Logic to calculate performance metrics and trigger refactors.
-
-  // 3. Governance
-  // Verify that all changes follow the safety and legal guidelines 
-  // defined in the Agent configs.
+  // Logic for monitoring builds and self-healing will reside here.
+  // We are currently operating at a 60-second heartbeat as requested.
 
   return { status: "Cycle completed", timestamp: new Date().toISOString() };
 }
 
-// Ensure this runs periodically
-setInterval(runEvolutionCycle, 1000 * 60 * 60); // Every hour
+// Heartbeat updated to 60 seconds as requested.
+setInterval(runEvolutionCycle, 1000 * 60); 

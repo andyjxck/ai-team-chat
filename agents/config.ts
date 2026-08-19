@@ -141,7 +141,7 @@ export const AGENT_CONFIGS: AgentConfig[] = [
   },
   {
     id: "zack",
-    name: "Zack",
+    name: "Zackary",
     role: "Senior Engineer",
     avatar: "⚡",
     persona: zackPersona,

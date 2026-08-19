@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { MessageSquarePlus, Settings, LogOut, Search, Code2, Zap } from "lucide-react";
+import { MessageSquarePlus, Settings, LogOut, Search, Code2, FolderKanban } from "lucide-react";
 import { signOut } from "next-auth/react";
 import { Avatar, AvatarGroup } from "./avatar";
 import { useState } from "react";
@@ -60,10 +60,9 @@ export function ChatSidebar({
 
   return (
     <aside
-      className="flex h-full w-80 flex-col border-r border-white/5"
-      style={{ background: "hsl(var(--sidebar))" }}
+      className="m-4 flex h-[calc(100vh-32px)] w-80 flex-col overflow-hidden rounded-3xl border border-white/10 bg-black/20 shadow-2xl backdrop-blur-2xl"
     >
-      {/* Header — premium look with gradient accent */}
+      {/* Header */}
       <div className="flex items-center justify-between px-4 py-4">
         <Link href="/chat" className="flex items-center gap-2.5 group">
           <div className="relative">
@@ -79,7 +78,7 @@ export function ChatSidebar({
           <div>
             <h1 className="text-base font-bold tracking-tight text-white">AI Team</h1>
             <p className="text-[10px] font-medium uppercase tracking-wider text-white/30">
-              {chats.length} chats · all online
+              {chats.length} chats
             </p>
           </div>
         </Link>
@@ -91,19 +90,10 @@ export function ChatSidebar({
           >
             <LogOut className="h-4 w-4" />
           </button>
-          {onClose && (
-            <button
-              onClick={onClose}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-white/40 hover:bg-white/10 hover:text-white md:hidden"
-              title="Close"
-            >
-              <span className="text-lg leading-none">×</span>
-            </button>
-          )}
         </div>
       </div>
 
-      {/* Search — sleek pill */}
+      {/* Search */}
       <div className="px-3 pb-2">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/25" />
@@ -111,19 +101,19 @@ export function ChatSidebar({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search..."
-            className="w-full rounded-xl border-0 bg-white/5 py-2.5 pl-9 pr-3 text-sm text-white placeholder:text-white/25 outline-none transition-all focus:bg-white/10 focus:ring-2 focus:ring-primary/30"
+            className="w-full rounded-2xl border-0 bg-white/5 py-2.5 pl-9 pr-3 text-sm text-white placeholder:text-white/25 outline-none transition-all focus:bg-white/10 focus:ring-1 focus:ring-white/20"
           />
         </div>
       </div>
 
-      {/* New chat button — prominent */}
+      {/* New chat button */}
       <div className="px-3 pb-3">
         <Link
           href="/chat/new"
           className={cn(
-            "flex items-center gap-2.5 rounded-xl px-3 py-3 text-sm font-semibold transition-all",
+            "flex items-center gap-2.5 rounded-2xl px-3 py-3 text-sm font-semibold transition-all",
             pathname === "/chat/new"
-              ? "bg-primary text-white shadow-lg shadow-primary/20"
+              ? "bg-white/20 text-white shadow-lg"
               : "bg-white/5 text-white/70 hover:bg-white/10 hover:text-white",
           )}
         >
@@ -134,7 +124,6 @@ export function ChatSidebar({
 
       {/* Chat list */}
       <div className="flex-1 overflow-y-auto px-2 pb-2">
-        {/* Group chats */}
         {filteredGroups.length > 0 && (
           <div className="mb-3">
             <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-white/25">
@@ -150,7 +139,6 @@ export function ChatSidebar({
           </div>
         )}
 
-        {/* DMs */}
         <div>
           <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-white/25">
             Direct Messages
@@ -165,8 +153,20 @@ export function ChatSidebar({
         </div>
       </div>
 
-      {/* Footer — settings with style */}
-      <div className="border-t border-white/5 px-3 py-2.5">
+      {/* Footer */}
+      <div className="border-t border-white/10 px-3 py-2.5 bg-black/10">
+        <Link
+          href="/assets"
+          className={cn(
+            "flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition-all mb-1",
+            pathname?.startsWith("/assets")
+              ? "bg-white/10 text-white"
+              : "text-white/50 hover:bg-white/5 hover:text-white/80",
+          )}
+        >
+          <FolderKanban className="h-4 w-4" />
+          Assets
+        </Link>
         <Link
           href="/settings"
           className={cn(
@@ -177,7 +177,7 @@ export function ChatSidebar({
           )}
         >
           <Settings className="h-4 w-4" />
-          Settings & Repos
+          Settings
         </Link>
       </div>
     </aside>
@@ -216,7 +216,6 @@ function ChatLink({
             size="sm"
           />
         )}
-        {/* Online indicator */}
         <span className={cn(
           "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2",
           active ? "border-[hsl(var(--sidebar))] bg-green-400" : "border-[hsl(var(--sidebar))] bg-green-500/70",
@@ -247,9 +246,6 @@ function ChatLink({
           <p className="truncate text-xs text-white/25">{firstMember?.role}</p>
         )}
       </div>
-      {active && (
-        <div className="h-1.5 w-1.5 rounded-full bg-primary shadow-glow" />
-      )}
     </Link>
   );
 }

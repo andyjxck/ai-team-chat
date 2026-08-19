@@ -1,5 +1,5 @@
-import { useState, useCallback, useRef } from "react";
-import { ClientMessage, ClientChat, ClientAgent } from "@/db/client-types";
+import { useState, useRef, useCallback } from "react";
+import type { ClientMessage, ClientAgent, ClientChat } from "@/db/client-types";
 
 export function useChatManager(
   chat: ClientChat,

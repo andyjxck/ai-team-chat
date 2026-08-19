@@ -60,7 +60,7 @@ export function ChatSidebar({
 
   return (
     <aside
-      className="m-4 flex h-[calc(100vh-32px)] w-80 flex-col overflow-hidden rounded-3xl border border-white/10 bg-black/20 shadow-2xl backdrop-blur-2xl"
+      className="m-4 flex h-[calc(100vh-32px)] w-80 flex-col overflow-hidden rounded-3xl border border-white/5 bg-black/40 shadow-2xl backdrop-blur-3xl transition-all hover:bg-black/50"
     >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-4">
@@ -73,19 +73,19 @@ export function ChatSidebar({
               height={32}
               className="rounded-xl shadow-lg transition-transform group-hover:scale-105"
             />
-            <div className="absolute inset-0 rounded-xl ring-1 ring-white/20" />
+            <div className="absolute inset-0 rounded-xl ring-1 ring-white/10" />
           </div>
           <div>
             <h1 className="text-base font-bold tracking-tight text-white">AI Team</h1>
             <p className="text-[10px] font-medium uppercase tracking-wider text-white/30">
-              {chats.length} chats
+              {chats.length} active chats
             </p>
           </div>
         </Link>
         <div className="flex items-center gap-1">
           <button
             onClick={() => signOut({ callbackUrl: "/login" })}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-white/40 transition-all hover:bg-white/10 hover:text-white"
+            className="flex h-8 w-8 items-center justify-center rounded-xl text-white/40 transition-all hover:bg-white/10 hover:text-white"
             title="Sign out"
           >
             <LogOut className="h-4 w-4" />
@@ -95,13 +95,13 @@ export function ChatSidebar({
 
       {/* Search */}
       <div className="px-3 pb-2">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/25" />
+        <div className="relative group">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/20 transition-colors group-focus-within:text-white/50" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search..."
-            className="w-full rounded-2xl border-0 bg-white/5 py-2.5 pl-9 pr-3 text-sm text-white placeholder:text-white/25 outline-none transition-all focus:bg-white/10 focus:ring-1 focus:ring-white/20"
+            placeholder="Search team chats..."
+            className="w-full rounded-2xl border border-white/5 bg-white/5 py-2.5 pl-9 pr-3 text-sm text-white placeholder:text-white/20 outline-none transition-all focus:bg-white/10 focus:ring-1 focus:ring-white/20"
           />
         </div>
       </div>
@@ -111,14 +111,14 @@ export function ChatSidebar({
         <Link
           href="/chat/new"
           className={cn(
-            "flex items-center gap-2.5 rounded-2xl px-3 py-3 text-sm font-semibold transition-all",
+            "flex items-center gap-2.5 rounded-2xl px-3 py-3 text-sm font-semibold transition-all border border-white/5",
             pathname === "/chat/new"
-              ? "bg-white/20 text-white shadow-lg"
+              ? "bg-white/15 text-white shadow-lg shadow-white/5"
               : "bg-white/5 text-white/70 hover:bg-white/10 hover:text-white",
           )}
         >
           <MessageSquarePlus className="h-4 w-4" />
-          New Chat
+          New Thread
         </Link>
       </div>
 
@@ -126,8 +126,8 @@ export function ChatSidebar({
       <div className="flex-1 overflow-y-auto px-2 pb-2">
         {filteredGroups.length > 0 && (
           <div className="mb-3">
-            <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-white/25">
-              Group Chats
+            <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-white/20">
+              Groups
             </p>
             {filteredGroups.map((chat) => (
               <ChatLink
@@ -140,8 +140,8 @@ export function ChatSidebar({
         )}
 
         <div>
-          <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-white/25">
-            Direct Messages
+          <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-white/20">
+            Messages
           </p>
           {filteredDms.map((chat) => (
             <ChatLink
@@ -154,14 +154,14 @@ export function ChatSidebar({
       </div>
 
       {/* Footer */}
-      <div className="border-t border-white/10 px-3 py-2.5 bg-black/10">
+      <div className="border-t border-white/5 px-3 py-2.5 bg-white/5">
         <Link
           href="/assets"
           className={cn(
             "flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition-all mb-1",
             pathname?.startsWith("/assets")
-              ? "bg-white/10 text-white"
-              : "text-white/50 hover:bg-white/5 hover:text-white/80",
+              ? "bg-white/15 text-white"
+              : "text-white/50 hover:bg-white/10 hover:text-white/80",
           )}
         >
           <FolderKanban className="h-4 w-4" />
@@ -172,8 +172,8 @@ export function ChatSidebar({
           className={cn(
             "flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-medium transition-all",
             pathname?.startsWith("/settings")
-              ? "bg-white/10 text-white"
-              : "text-white/50 hover:bg-white/5 hover:text-white/80",
+              ? "bg-white/15 text-white"
+              : "text-white/50 hover:bg-white/10 hover:text-white/80",
           )}
         >
           <Settings className="h-4 w-4" />
@@ -199,7 +199,7 @@ function ChatLink({
     <Link
       href={`/chat/${chat.id}`}
       className={cn(
-        "group flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all",
+        "group flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all mb-0.5",
         active
           ? "bg-white/10 text-white shadow-sm"
           : "text-white/55 hover:bg-white/5 hover:text-white/90",
@@ -228,22 +228,22 @@ function ChatLink({
             <Code2 className="h-3 w-3 shrink-0 text-blue-400" />
           )}
           {chat.lastMessage && (
-            <span className="ml-auto shrink-0 text-[10px] text-white/25">
+            <span className="ml-auto shrink-0 text-[10px] text-white/20">
               {formatRelativeTime(chat.lastMessage.createdAt)}
             </span>
           )}
         </div>
         {chat.lastMessage ? (
-          <p className="truncate text-xs text-white/35">
-            <span className="text-white/25">{chat.lastMessage.senderName}: </span>
+          <p className="truncate text-xs text-white/30">
+            <span className="text-white/20">{chat.lastMessage.senderName}: </span>
             {chat.lastMessage.content}
           </p>
         ) : isGroup ? (
-          <p className="truncate text-xs text-white/25">
+          <p className="truncate text-xs text-white/20">
             {chat.members.map(m => m.name).join(", ")}
           </p>
         ) : (
-          <p className="truncate text-xs text-white/25">{firstMember?.role}</p>
+          <p className="truncate text-xs text-white/20">{firstMember?.role}</p>
         )}
       </div>
     </Link>

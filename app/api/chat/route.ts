@@ -178,7 +178,7 @@ If you're unsure whether the user wants you to take action, ASK them first inste
       system: config.persona + toolInstructions,
       messages: [...historyMessages.slice(0, -1), { role: "user", content } as ModelMessage],
       tools,
-      stopWhen: isStepCount(isCoder ? 12 : 8),
+      stopWhen: isStepCount(isCoder ? 50 : 30),
     });
 
     let fullText = "";
@@ -356,6 +356,8 @@ When the user gives you a task, here's what you do:
 You have 6 steps. Be efficient — do multiple tool calls per step. But ALWAYS produce a text response with [agent_id] markers as your FINAL step. If you only do tool calls and no text, the user won't see anything.
 
 ### Critical Rules
+- **FINISH THE JOB.** You have up to 50 steps. Do NOT stop halfway through a task. If you start refactoring, finish the refactor. If you create a file, fill it with the actual logic. NEVER leave a file with "// Logic will be moved here" or an empty function. NEVER create a skeleton and stop. COMPLETE the work.
+- **TRACK YOUR STEPS.** You have a limited number of steps. Be aware of how many you've used. If you're running low, prioritize finishing what you started over starting something new. If you cannot finish, say exactly: "I ran out of steps. Here's what I've done: [list]. Here's what still needs doing: [list]."
 - **NEVER** say "I suggest changing..." or "You should..." or "Consider refactoring..." — just DO IT.
 - **NEVER** give a list of "improvement ideas" — make the improvements.
 - **NEVER** ask "should I make this change?" — just make it. Edits are auto-approved.
@@ -440,7 +442,7 @@ The ai-team-chat repo IS your own code. You can read it, find bugs, fix them, an
         { role: "user", content: userMessage } as ModelMessage,
       ],
       tools: hasTools ? groupTools : undefined,
-      stopWhen: isStepCount(hasTools ? 20 : 1),
+      stopWhen: isStepCount(hasTools ? 50 : 1),
       maxOutputTokens: hasTools ? 12000 : undefined,
     });
 

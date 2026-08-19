@@ -7,15 +7,13 @@ import type { LanguageModel } from "ai";
 export type ModelProvider = "google" | "openai" | "anthropic" | "groq";
 
 // Fallback chain — tried in order when rate limits hit
-// Start with the cheapest, advance to more capable when rate-limited
+// All these models have free tiers on Google AI Studio
+// Ordered from most capable to most economical
 const GOOGLE_FALLBACK_MODELS = [
-  "gemini-3.1-flash-lite",
   "gemini-2.5-flash",
   "gemini-2.5-flash-lite",
-  "gemini-3.0-flash",
-  "gemini-3.5-flash",
-  "gemini-3.6-flash",
-  "gemini-3.7-flash",
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-lite",
 ];
 
 // Track which model index we're on
@@ -43,7 +41,7 @@ export function getModel(_modelIdOverride?: string): LanguageModel {
   }
 
   const provider = process.env.AI_MODEL_ID?.split("/")[0] ?? "google";
-  const primaryModel = process.env.AI_MODEL_ID?.split("/").slice(1).join("/") ?? "gemini-3.1-flash-lite";
+  const primaryModel = process.env.AI_MODEL_ID?.split("/").slice(1).join("/") ?? "gemini-2.5-flash";
 
   if (provider === "google") {
     const google = getGoogleClient();

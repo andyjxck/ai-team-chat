@@ -54,7 +54,7 @@ export function QuestionCard({
       {/* Header bar */}
       <div className="flex items-center gap-3 px-5 py-3.5 border-b border-blue-500/15 bg-blue-500/[0.03]">
         <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-500/15">
-          <HelpCircle className="h-4.5 w-4.5 text-blue-500" />
+          <HelpCircle className="h-4 w-4 text-blue-500" />
         </div>
         <div className="flex-1">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-blue-500/70">Agent Question</p>

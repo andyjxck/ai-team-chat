@@ -178,13 +178,6 @@ function ChatLink({
   return (
     <Link
       href={`/chat/${chat.id}`}
-      draggable
-      onDragStart={(e) => {
-        e.dataTransfer.setData("chatId", chat.id);
-        e.dataTransfer.setData("chatName", chat.name);
-        e.dataTransfer.setData("chatType", chat.type);
-        e.dataTransfer.setData("chatMembers", JSON.stringify(chat.members));
-      }}
       className={cn(
         "group flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all",
         active

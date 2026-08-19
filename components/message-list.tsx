@@ -4,11 +4,24 @@ import { useEffect, useRef } from "react";
 import { MessageBubble } from "./message-bubble";
 import { DraftCard } from "./draft-card";
 import { QuestionCard } from "./question-card";
-import { CodePreviewCard } from "./code-preview-card";
-import { ChangeReviewCard, type FileChange } from "./change-review-card";
-import { LiveCodeEditor, type LiveCodeEdit } from "./live-code-editor";
 import { Avatar } from "./avatar";
-import type { ClientMessage, DraftData, QuestionData, CodeChangeData } from "@/db/client-types";
+import type { ClientMessage, DraftData, QuestionData } from "@/db/client-types";
+
+function getDateLabel(date: Date): string {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const msgDate = new Date(date);
+  msgDate.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((today.getTime() - msgDate.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  if (diffDays < 7) return msgDate.toLocaleDateString(undefined, { weekday: "long" });
+  return msgDate.toLocaleDateString(undefined, { month: "short", day: "numeric", year: msgDate.getFullYear() !== today.getFullYear() ? "numeric" : undefined });
+}
+
+function isSameDay(a: string, b: string): boolean {
+  return new Date(a).toDateString() === new Date(b).toDateString();
+}
 
 export function MessageList({
   messages,
@@ -34,7 +47,7 @@ export function MessageList({
 
   return (
     <div ref={containerRef} className="flex-1 overflow-y-auto px-4 py-4">
-      <div className="mx-auto max-w-3xl space-y-4">
+      <div className="mx-auto max-w-3xl space-y-1">
         {messages.length === 0 && members && members.length > 0 && (
           <EmptyState members={members} chatId={chatId} />
         )}
@@ -46,57 +59,70 @@ export function MessageList({
             </div>
           </div>
         )}
-        {messages.map((msg) => (
-          <div key={msg.id} className="space-y-2">
-            <MessageBubble message={msg} onReply={onReply} />
-            {/* Question cards */}
-            {msg.questions && msg.questions.length > 0 && (
-              <div className="ml-11 space-y-2">
-                {msg.questions.map((q) => (
-                  <QuestionCard
-                    key={q.questionId}
-                    question={q}
-                    onSelect={(answer) => onQuestionAnswer?.(msg.id, q.questionId, answer)}
-                  />
-                ))}
+        {messages.map((msg, i) => {
+          const prev = messages[i - 1];
+          const next = messages[i + 1];
+
+          // Date separator
+          const showDateSeparator = !prev || !isSameDay(prev.createdAt, msg.createdAt);
+
+          // Message grouping: group consecutive messages from same sender within 5 minutes
+          const isGroupedWithPrev = prev &&
+            prev.senderId === msg.senderId &&
+            prev.senderType === msg.senderType &&
+            !showDateSeparator &&
+            (new Date(msg.createdAt).getTime() - new Date(prev.createdAt).getTime()) < 5 * 60 * 1000;
+
+          const isGroupedWithNext = next &&
+            next.senderId === msg.senderId &&
+            next.senderType === msg.senderType &&
+            isSameDay(msg.createdAt, next.createdAt) &&
+            (new Date(next.createdAt).getTime() - new Date(msg.createdAt).getTime()) < 5 * 60 * 1000;
+
+          return (
+            <div key={msg.id}>
+              {showDateSeparator && (
+                <div className="flex items-center justify-center py-3">
+                  <span className="rounded-full bg-muted px-3 py-1 text-[11px] font-medium text-muted-foreground">
+                    {getDateLabel(new Date(msg.createdAt))}
+                  </span>
+                </div>
+              )}
+              <div className={isGroupedWithPrev ? "mt-0.5" : "mt-3"}>
+                <MessageBubble
+                  message={msg}
+                  onReply={onReply}
+                  grouped={isGroupedWithPrev ? "continued" : isGroupedWithNext ? "first" : undefined}
+                />
+                {/* Question cards */}
+                {msg.questions && msg.questions.length > 0 && (
+                  <div className="ml-11 space-y-2">
+                    {msg.questions.map((q) => (
+                      <QuestionCard
+                        key={q.questionId}
+                        question={q}
+                        onSelect={(answer) => onQuestionAnswer?.(msg.id, q.questionId, answer)}
+                      />
+                    ))}
+                  </div>
+                )}
+                {/* Draft cards */}
+                {msg.drafts && msg.drafts.length > 0 && (
+                  <div className="ml-11 space-y-2">
+                    {msg.drafts.map((draft) => (
+                      <DraftCard
+                        key={draft.draftId}
+                        draft={draft}
+                        chatId={chatId}
+                        onUpdate={(updated) => onDraftUpdate?.(msg.id, updated)}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
-            {/* Draft cards */}
-            {msg.drafts && msg.drafts.length > 0 && (
-              <div className="ml-11 space-y-2">
-                {msg.drafts.map((draft) => (
-                  <DraftCard
-                    key={draft.draftId}
-                    draft={draft}
-                    chatId={chatId}
-                    onUpdate={(updated) => onDraftUpdate?.(msg.id, updated)}
-                  />
-                ))}
-              </div>
-            )}
-            {/* Live code editing */}
-            {msg.codeChanges && msg.codeChanges.length > 0 && (
-              <div className="ml-11 space-y-2">
-                {msg.codeChanges.map((change, idx) => {
-                  const agent = msg.agent;
-                  const edit: LiveCodeEdit = {
-                    repo: change.repo,
-                    path: change.path,
-                    description: change.description,
-                    oldContent: change.oldContent ?? "",
-                    newContent: change.newContent ?? "",
-                    agentName: agent?.name ?? "Agent",
-                    agentAvatar: agent?.avatar ?? "🤖",
-                    agentId: agent?.id ?? "system",
-                    changeId: change.changeId,
-                    status: change.status === "applied" ? "done" : change.status as "done" | "accepted" | "rejected",
-                  };
-                  return <LiveCodeEditor key={`${change.path}-${idx}`} edit={edit} />;
-                })}
-              </div>
-            )}
-          </div>
-        ))}
+            </div>
+          );
+        })}
         <div ref={bottomRef} />
       </div>
     </div>

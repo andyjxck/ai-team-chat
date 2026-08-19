@@ -19,8 +19,8 @@ const AGENT_GRADIENTS: Record<string, string> = {
 const AGENT_IMAGES: Record<string, string> = {
   maya: "/agents/maya.jpg",
   leo: "/agents/leo.jpg",
-  sally: "/agents/sage.jpg",
-  evie: "/agents/eve.jpg",
+  sally: "/agents/sally.jpg",
+  evie: "/agents/evie.jpg",
   lex: "/agents/lex.jpg",
   zack: "/agents/zack.jpg",
   kevin: "/agents/kevin.jpg",

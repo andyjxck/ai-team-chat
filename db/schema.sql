@@ -134,3 +134,15 @@ CREATE TABLE IF NOT EXISTS github_repos (
   opened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, repo_id)
 );
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages (chat_id);
+CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_chat_created ON messages (chat_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_chat_members_chat_id ON chat_members (chat_id);
+CREATE INDEX IF NOT EXISTS idx_chat_members_agent_id ON chat_members (agent_id);
+CREATE INDEX IF NOT EXISTS idx_memory_agent_id ON memory (agent_id);
+CREATE INDEX IF NOT EXISTS idx_leads_status ON leads (status);
+CREATE INDEX IF NOT EXISTS idx_reminders_agent_id ON reminders (agent_id);
+CREATE INDEX IF NOT EXISTS idx_reminders_due_at ON reminders (due_at);
+

@@ -17,9 +17,11 @@ type SidebarChat = {
 
 export function ChatShell({
   chats,
+  activeChatName,
   children,
 }: {
   chats: SidebarChat[];
+  activeChatName?: string;
   children?: React.ReactNode;
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -60,7 +62,7 @@ export function ChatShell({
           >
             <Menu className="h-5 w-5" />
           </button>
-          <span className="text-sm font-semibold">AI Team Chat</span>
+          <span className="text-sm font-semibold truncate">{activeChatName ?? "AI Team Chat"}</span>
         </div>
 
         {children}

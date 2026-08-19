@@ -56,7 +56,7 @@ export function ChatManager({ chats, children }: { chats: SidebarChat[]; childre
   }, [chatId, fetchChat]);
 
   return (
-    <ChatShell chats={chats}>
+    <ChatShell chats={chats} activeChatName={activeChat?.chat.name}>
       <div className="flex flex-1 flex-col overflow-hidden">
         {loading ? (
           <div className="flex flex-1 items-center justify-center">

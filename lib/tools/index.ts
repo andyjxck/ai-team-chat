@@ -14,8 +14,6 @@ import { messageAgent } from "./message-agent";
 import { appPerformanceLog, appPerformanceReport } from "./app-performance";
 import { draftAction } from "./draft";
 import { askQuestion } from "./ask-question";
-import { r2ListRepositories, r2ListFiles, r2ReadFile, r2UploadFile, r2SearchFiles } from "./r2";
-import { codeReview, codeEdit } from "./code-tools";
 import { netlifyDeploy, netlifyListDeploys } from "./netlify-deploy";
 import { proactiveMessage } from "./proactive-message";
 import {
@@ -58,7 +56,6 @@ export const ALL_TOOLS = {
   app_performance_report: appPerformanceReport,
   draft_action: draftAction,
   ask_question: askQuestion,
-  // GitHub tools (replace R2 for code editing)
   github_list_repos: githubListRepos,
   github_list_files: githubListFiles,
   github_read_file: githubReadFile,
@@ -66,14 +63,6 @@ export const ALL_TOOLS = {
   github_delete_file: githubDeleteFile,
   github_get_commits: githubGetCommits,
   github_review: githubReview,
-  // Keep R2 tools for backward compat
-  r2_list_repos: r2ListRepositories,
-  r2_list_files: r2ListFiles,
-  r2_read_file: r2ReadFile,
-  r2_upload_file: r2UploadFile,
-  r2_search_files: r2SearchFiles,
-  code_review: codeReview,
-  code_edit: codeEdit,
   netlify_deploy: netlifyDeploy,
   netlify_list_deploys: netlifyListDeploys,
   proactive_message: proactiveMessage,

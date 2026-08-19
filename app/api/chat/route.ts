@@ -130,6 +130,7 @@ async function handleDM(
   const config = getAgentConfig(agentId);
   if (!config) return;
 
+  // Tools read this to know which agent is calling them
   (globalThis as Record<string, unknown>).__currentAgentId = agentId;
   sendEvent({ type: "agent_start", agentId });
 
@@ -304,7 +305,7 @@ Each agent that responds MUST use this format:
 
 Example:
 [maya] hey, that trend is fire, let me draft a post
-[sage] I can add SEO keywords to that post too
+[sally] I can add SEO keywords to that post too
 
 Rules:
 - Start each agent's message with [agent_id] in brackets, then their text
@@ -318,11 +319,11 @@ Rules:
 ${routingRule}
 
 ## Team Dynamics
-- Agents can talk to each other, not just to the user. If Maya suggests a post, Sage might chime in about SEO. If Leo finds an app idea, Wade might comment on technical feasibility.
+- Agents can talk to each other, not just to the user. If Maya suggests a post, Sally might chime in about SEO. If Leo finds an app idea, Zack might comment on technical feasibility.
 - Don't force every agent to respond — only those with something relevant to add.
 - Let conversations flow naturally between team members.
 - If an agent disagrees with another agent, they should say so respectfully.
-- When one agent is doing a tool call (like code_edit or r2_read_file), the OTHER agents should still comment on what's happening. For example, if Zack is editing a file, Kevin might say "looks good" or "wait, I'd change the approach" and Beepbop might react. Don't go silent just because one person is using a tool.
+- When one agent is doing a tool call (like github_edit_file or github_read_file), the OTHER agents should still comment on what's happening. For example, if Zack is editing a file, Kevin might say "looks good" or "wait, I'd change the approach" and Beepbop might react. Don't go silent just because one person is using a tool.
 - Each agent should always introduce their perspective with their [agent_id] marker, even if they're just commenting on another agent's work.
 
 ## History Context
@@ -332,7 +333,7 @@ This is an ongoing conversation. Respond naturally to the user's latest message.
 If the user says "continue", "keep going", "go on", or similar, they want you to keep working on whatever you were doing before. Look at the conversation history — what were you working on? What was the last thing you said or did? Pick up from there and keep going. Don't ask "continue with what?" — figure it out from context and DO IT.
 
 ${isCodingTeam || isAllTeam ? `## Code Repositories — YOUR WORKSPACE
-You have access to R2 cloud storage tools to read AND edit code. These are REAL tools that make REAL changes. Use them.
+You have access to GitHub tools to read AND edit code. These are REAL tools that make REAL changes. Use them.
 
 ### Available Tools
 - github_list_repos: List all repos the user has opened
@@ -353,7 +354,7 @@ When the user gives you a task, here's what you do:
 2. **STEP 2**: Call github_edit_file to fix the files. ONLY call netlify_deploy if you actually made edits. If you didn't edit anything, DO NOT deploy.
 3. **STEP 3**: Report what you did.
 
-You have 6 steps. Be efficient — do multiple tool calls per step. But ALWAYS produce a text response with [agent_id] markers as your FINAL step. If you only do tool calls and no text, the user won't see anything.
+You have up to 50 steps. Be efficient — do multiple tool calls per step. But ALWAYS produce a text response with [agent_id] markers as your FINAL step. If you only do tool calls and no text, the user won't see anything.
 
 ### Critical Rules
 - **FINISH THE JOB.** You have up to 50 steps. Do NOT stop halfway through a task. If you start refactoring, finish the refactor. If you create a file, fill it with the actual logic. NEVER leave a file with "// Logic will be moved here" or an empty function. NEVER create a skeleton and stop. COMPLETE the work.
@@ -368,7 +369,7 @@ You have 6 steps. Be efficient — do multiple tool calls per step. But ALWAYS p
 - **ALWAYS** talk to each other while working. "I'm reading the auth file now" — "I found the bug" — "On it, fixing it now."
 - **ALWAYS** report what you DID, not what you WOULD do. "I edited 3 files and deployed" not "I recommend editing 3 files."
 - Edits are AUTO-APPROVED. Just make them. Old versions are saved for rollback if needed.
-- Deploy to Netlify whenever the work is done. Don't wait for permission.
+- Only deploy when the user explicitly asks you to deploy, OR when you have completed a coding task and the changes are ready to go live.
 
 ### TOOL USAGE — READ THIS CAREFULLY
 You have REAL tools available. They are not text commands. They are function calls that the system executes for you.
@@ -435,6 +436,9 @@ The ai-team-chat repo IS your own code. You can read it, find bugs, fix them, an
     // Give agents tools in the main call so they can actually DO work
     // Heartbeats during tool calls keep the Netlify connection alive
     const hasTools = isCodingTeam || isAllTeam;
+    // Set agent context for tools (use first coder if available, else first in-scope)
+    const primaryAgentId = orderedIds.find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? orderedIds[0];
+    (globalThis as Record<string, unknown>).__currentAgentId = primaryAgentId;
     const result = streamText({
       model,
       system: systemPrompt,
@@ -490,19 +494,39 @@ The ai-team-chat repo IS your own code. You can read it, find bugs, fix them, an
         // Send real tool call event + heartbeat to keep connection alive
         const toolName = (part as { toolName: string }).toolName;
         const toolInput = (part as { input: unknown }).input;
-        // Attribute to the right agent
-        let toolAgentId = "zack";
-        if (["zack", "kevin", "beepbop"].some(id => Object.keys(agentResponses).includes(id))) {
-          toolAgentId = Object.keys(agentResponses).find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? "zack";
+        // Attribute to the agent currently speaking, or the first in-scope agent
+        let toolAgentId = currentAgentId ?? orderedIds[0] ?? "system";
+        // If no agent is currently speaking, try to infer from tool type
+        if (!currentAgentId) {
+          const codeTools = ["github_edit_file", "github_read_file", "github_list_files", "github_list_repos", "github_delete_file", "github_get_commits", "github_review", "netlify_deploy", "netlify_list_deploys"];
+          if (codeTools.includes(toolName)) {
+            toolAgentId = Object.keys(agentResponses).find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? orderedIds.find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? "zack";
+          } else {
+            // Find an agent that has this tool
+            const agentWithTool = orderedIds.find(id => {
+              const config = getAgentConfig(id);
+              return config?.tools.includes(toolName);
+            });
+            if (agentWithTool) toolAgentId = agentWithTool;
+          }
         }
         sendEvent({ type: "tool_call", agentId: toolAgentId, tool: toolName, args: toolInput });
         sendEvent({ type: "heartbeat", tool: toolName });
       } else if (part.type === "tool-result") {
         const toolName = (part as { toolName: string }).toolName;
         const output = (part as { output: unknown }).output;
-        let toolAgentId = "zack";
-        if (["zack", "kevin", "beepbop"].some(id => Object.keys(agentResponses).includes(id))) {
-          toolAgentId = Object.keys(agentResponses).find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? "zack";
+        let toolAgentId = currentAgentId ?? orderedIds[0] ?? "system";
+        if (!currentAgentId) {
+          const codeTools = ["github_edit_file", "github_read_file", "github_list_files", "github_list_repos", "github_delete_file", "github_get_commits", "github_review", "netlify_deploy", "netlify_list_deploys"];
+          if (codeTools.includes(toolName)) {
+            toolAgentId = Object.keys(agentResponses).find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? orderedIds.find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? "zack";
+          } else {
+            const agentWithTool = orderedIds.find(id => {
+              const config = getAgentConfig(id);
+              return config?.tools.includes(toolName);
+            });
+            if (agentWithTool) toolAgentId = agentWithTool;
+          }
         }
         const error = (output as { error?: string })?.error;
         sendEvent({ type: "tool_result", agentId: toolAgentId, tool: toolName, result: output, error });
@@ -729,9 +753,9 @@ The ai-team-chat repo IS your own code. You can read it, find bugs, fix them, an
 
         // Attribute tool calls to the agent that most likely made them
         let toolAgentId = inScopeAgentIds[0] ?? "system";
-        // Code tools go to Zack (or whichever coder responded)
-        if (["github_edit_file", "github_review", "github_read_file", "github_list_files", "github_list_repos", "github_delete_file", "github_get_commits", "netlify_deploy", "netlify_list_deploys", "code_edit", "code_review", "r2_read_file", "r2_list_files", "r2_list_repos", "r2_upload_file", "r2_search_files"].includes(toolName)) {
-          toolAgentId = Object.keys(agentResponses).find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? "zack";
+        // Code tools go to whichever coder responded
+        if (["github_edit_file", "github_review", "github_read_file", "github_list_files", "github_list_repos", "github_delete_file", "github_get_commits", "netlify_deploy", "netlify_list_deploys"].includes(toolName)) {
+          toolAgentId = Object.keys(agentResponses).find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? inScopeAgentIds.find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? "zack";
         }
         // Other tools go to whichever agent responded that has that tool
         else {
@@ -752,144 +776,6 @@ The ai-team-chat repo IS your own code. You can read it, find bugs, fix them, an
       }
     }
 
-    // ─── Parse fake @@action:tool_name(args) from text and execute real tools ───
-    // The model sometimes writes tool calls as text instead of using real tool calls.
-    // Parse those and execute them for real.
-    try {
-      if (groupTools) {
-        // Match @@action:tool(...) OR /tool(...) OR :tool(...) patterns
-        const fakeToolPattern = /(?:@@action:|\/|:)(\w+)\(([^)]*)\)/g;
-        const fakeMatches = [...fullText.matchAll(fakeToolPattern)];
-
-        // Map fake tool names to real tool names
-        const toolAliases: Record<string, string> = {
-          r2_edit_file: "github_edit_file",
-          r2_read_file: "github_read_file",
-          r2_upload_file: "github_edit_file",
-          r2_list_files: "github_list_files",
-          r2_list_repos: "github_list_repos",
-          r2_search_files: "github_review",
-          code_review: "github_review",
-          code_edit: "github_edit_file",
-          github_edit_file: "github_edit_file",
-          github_read_file: "github_read_file",
-          github_list_files: "github_list_files",
-          github_list_repos: "github_list_repos",
-          github_review: "github_review",
-          github_delete_file: "github_delete_file",
-          github_get_commits: "github_get_commits",
-          netlify_deploy: "netlify_deploy",
-          netlify_list_deploys: "netlify_list_deploys",
-          draft_action: "draft_action",
-          serper_search: "serper_search",
-          web_fetch: "web_fetch",
-          social_post_x: "social_post_x",
-          gmail_send: "gmail_send",
-          calendar_create: "calendar_create",
-        };
-
-        for (const match of fakeMatches) {
-          const rawToolName = match[1];
-          const fakeToolName = toolAliases[rawToolName] ?? rawToolName;
-          const fakeArgsRaw = match[2];
-
-          // Parse args: key="value", key="value"
-          const fakeArgs: Record<string, unknown> = {};
-          const argPattern = /(\w+)=["']([^"']*?)["']/g;
-          const argMatches = [...fakeArgsRaw.matchAll(argPattern)];
-          for (const am of argMatches) {
-            // Map common arg name aliases
-            const argName = am[1] === "content" ? "newContent" : am[1];
-            fakeArgs[argName] = am[2];
-          }
-
-          // Check if we have this tool
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const toolMap = groupTools as any;
-          const tool = toolMap[fakeToolName];
-          if (tool && tool.execute) {
-            // Attribute to the right agent
-            let toolAgentId = inScopeAgentIds[0] ?? "system";
-            if (["github_edit_file", "github_review", "github_read_file", "github_list_files", "github_list_repos", "github_delete_file", "github_get_commits", "netlify_deploy", "netlify_list_deploys", "code_edit", "code_review", "r2_read_file", "r2_list_files", "r2_list_repos", "r2_upload_file", "r2_search_files"].includes(fakeToolName)) {
-              toolAgentId = Object.keys(agentResponses).find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? "zack";
-            } else {
-              const agentWithTool = Object.keys(agentResponses).find(id => {
-                const config = getAgentConfig(id);
-                return config?.tools.includes(fakeToolName);
-              });
-              if (agentWithTool) toolAgentId = agentWithTool;
-            }
-
-            console.log(`[chat] Executing fake tool call: ${fakeToolName} by ${toolAgentId}`, fakeArgs);
-            sendEvent({ type: "tool_call", agentId: toolAgentId, tool: fakeToolName, args: fakeArgs });
-
-            try {
-              const fakeResult = await tool.execute(fakeArgs);
-              const error = (fakeResult as { error?: string })?.error;
-              sendEvent({ type: "tool_result", agentId: toolAgentId, tool: fakeToolName, result: fakeResult, error });
-              console.log(`[chat] Fake tool result:`, JSON.stringify(fakeResult).slice(0, 200));
-            } catch (err) {
-              const errMsg = err instanceof Error ? err.message : "Tool execution failed";
-              sendEvent({ type: "tool_result", agentId: toolAgentId, tool: fakeToolName, result: { error: errMsg }, error: errMsg });
-            }
-          }
-        }
-      }
-    } catch (parseErr) {
-      console.error("[chat] Fake tool parser error (non-fatal):", parseErr);
-    }
-
-    // ─── Follow-up tool calls for agents that need to take action ───
-    // After the group conversation, if any agent said they'd draft/send/create something,
-    // do a follow-up call to that agent with tools enabled.
-    const actionKeywords = [
-      "i'll draft", "i'll send", "i'll create", "i'll post", "i'll write", "i'll schedule",
-      "let me draft", "let me send", "let me create", "let me post", "let me write", "let me schedule",
-      "drafting", "sending", "creating", "posting", "scheduling",
-      "i'll prepare", "let me prepare", "preparing",
-      "i'll put together", "let me put together",
-      "i'll generate", "let me generate", "generating",
-      "i'll set up", "let me set up", "setting up",
-      "i'll compose", "let me compose", "composing",
-      "i'll build", "let me build", "building",
-      "i'll make", "let me make", "making",
-      "i'll draft that", "i'll send that", "i'll create that",
-      "i'll get that", "let me get that",
-      "i'll handle", "let me handle",
-      "i'll fix", "let me fix", "fixing",
-      "i'll read", "let me read", "reading",
-      "i'll edit", "let me edit", "editing",
-      "i'll deploy", "let me deploy", "deploying",
-      "i'll review", "let me review", "reviewing",
-      "i'll check", "let me check", "checking",
-      "i'll update", "let me update", "updating",
-      "i'll refactor", "let me refactor", "refactoring",
-      "i'll patch", "let me patch", "patching",
-      "i'll push", "let me push", "pushing",
-      "i'll upload", "let me upload", "uploading",
-      "i'll search", "let me search", "searching",
-      "i'll find", "let me find", "finding",
-      "i'll scan", "let me scan", "scanning",
-      "i'll look at", "let me look at",
-      "i'll pull", "let me pull", "pulling",
-      "i'll write that", "i'll draft that up",
-      "i'll take care", "let me take care",
-      "i'll do that", "let me do that",
-      "on it", "got it", "consider it done", "i'm on it",
-      "i'll put together a draft", "i'll prepare a draft",
-      "i'll write that", "i'll write up",
-    ];
-    for (const [agentId, agentText] of Object.entries(agentResponses)) {
-      const config = getAgentConfig(agentId);
-      if (!config || config.tools.length === 0) continue;
-
-      const lowerText = agentText.toLowerCase();
-      const wantsAction = actionKeywords.some((kw) => lowerText.includes(kw));
-      if (!wantsAction) continue;
-
-      // Do a follow-up call to this agent with tools
-      await followUpToolCall(agentId, chatId, content, agentText, sendEvent);
-    }
   } catch (err) {
     if (isRateLimitError(err)) {
       advanceFallbackModel();
@@ -900,6 +786,8 @@ The ai-team-chat repo IS your own code. You can read it, find bugs, fix them, an
         message: err instanceof Error ? err.message : "Unknown error",
       });
     }
+  } finally {
+    delete (globalThis as Record<string, unknown>).__currentAgentId;
   }
 }
 
@@ -942,100 +830,4 @@ async function finalizeAgent(
   });
 
   sendEvent({ type: "message_end", agentId, messageId: agentMessageId, content: trimmed });
-}
-
-// ─── Follow-up tool call for an agent that wants to take action ───
-async function followUpToolCall(
-  agentId: string,
-  chatId: string,
-  userMessage: string,
-  agentResponse: string,
-  sendEvent: (e: Record<string, unknown>) => void,
-) {
-  const config = getAgentConfig(agentId);
-  if (!config) return;
-
-  (globalThis as Record<string, unknown>).__currentAgentId = agentId;
-
-  const tools = getToolsForAgent(config.tools);
-
-  // Determine which tool to call directly based on what the agent said
-  const lowerResponse = agentResponse.toLowerCase();
-  const lowerUser = userMessage.toLowerCase();
-
-  // Map intentions to direct tool calls
-  let toolToCall: string | null = null;
-  let toolArgs: Record<string, unknown> = {};
-
-  // Only auto-trigger deploy if the USER explicitly asked for it
-  if (lowerUser.includes("deploy") && (lowerUser.includes("please") || lowerUser.includes("can you") || lowerUser.includes("do a") || lowerUser.includes("do it") || lowerUser.includes("now"))) {
-    toolToCall = "netlify_deploy";
-    toolArgs = { repo: "ai-team-chat", message: agentResponse.slice(0, 100) };
-  } else if (lowerUser.includes("review") || lowerUser.includes("bug") || lowerResponse.includes("review") || lowerResponse.includes("bug")) {
-    toolToCall = "github_review";
-    toolArgs = { owner: "andyjxck", repo: "ai-team-chat", focus: "all" };
-  } else if (lowerUser.includes("read") || lowerResponse.includes("reading") || lowerResponse.includes("read the")) {
-    toolToCall = "github_list_files";
-    toolArgs = { owner: "andyjxck", repo: "ai-team-chat" };
-  } else if (lowerResponse.includes("draft") || lowerResponse.includes("email")) {
-    toolToCall = "draft_action";
-    toolArgs = { type: "email", context: userMessage, agentResponse };
-  } else if (lowerResponse.includes("post") && lowerResponse.includes("x")) {
-    toolToCall = "social_post_x";
-    toolArgs = { content: agentResponse };
-  } else if (lowerResponse.includes("search") || lowerUser.includes("lead")) {
-    toolToCall = "serper_search";
-    toolArgs = { query: userMessage };
-  }
-
-  if (!toolToCall) {
-    console.log(`[followUpToolCall] No tool matched for ${agentId}`);
-    delete (globalThis as Record<string, unknown>).__currentAgentId;
-    return;
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const tool = (tools as any)[toolToCall];
-  if (!tool || !tool.execute) {
-    console.log(`[followUpToolCall] Tool ${toolToCall} not available for ${agentId}`);
-    delete (globalThis as Record<string, unknown>).__currentAgentId;
-    return;
-  }
-
-  try {
-    console.log(`[followUpToolCall] ${agentId} calling ${toolToCall} directly`);
-    sendEvent({ type: "tool_call", agentId, tool: toolToCall, args: toolArgs });
-
-    const result = await tool.execute(toolArgs);
-    const error = (result as { error?: string })?.error;
-    sendEvent({ type: "tool_result", agentId, tool: toolToCall, result, error });
-
-    // If deploy succeeded, send a confirmation message
-    if (toolToCall === "netlify_deploy" && (result as { success?: boolean })?.success) {
-      const deployResult = result as { siteUrl?: string; filesDeployed?: number };
-      const confirmMsg = `Deployed ${deployResult.filesDeployed ?? 0} files to ${deployResult.siteUrl ?? "Netlify"}.`;
-      sendEvent({ type: "agent_start", agentId });
-      sendEvent({ type: "token", agentId, text: confirmMsg });
-      const msgId = nanoid();
-      // Save to DB
-      try {
-        await supabase.from("messages").insert({
-          id: msgId,
-          chat_id: chatId,
-          sender_id: agentId,
-          sender_type: "agent",
-          content: confirmMsg,
-          mentions: [],
-          tool_calls: [],
-        });
-      } catch { /* ignore */ }
-      sendEvent({ type: "message_end", agentId, messageId: msgId, content: confirmMsg });
-    }
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : "Tool call failed";
-    console.error(`[followUpToolCall] ${agentId} ${toolToCall} failed:`, err);
-    sendEvent({ type: "tool_result", agentId, tool: toolToCall, result: { error: errMsg }, error: errMsg });
-  } finally {
-    delete (globalThis as Record<string, unknown>).__currentAgentId;
-  }
 }

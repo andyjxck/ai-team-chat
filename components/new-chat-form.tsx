@@ -59,7 +59,10 @@ export function NewChatForm({ agents }: { agents: Agent[] }) {
       <div className="space-y-2">
         <label className="text-sm font-medium">Team members</label>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {agents.map((agent) => (
+          {agents.map((agent) => {
+            // Coding team agents are only available for group chats
+            const isCoderOnly = ["zack", "kevin", "beepbop"].includes(agent.id);
+            return (
             <button
               key={agent.id}
               onClick={() => toggleAgent(agent.id)}
@@ -72,14 +75,18 @@ export function NewChatForm({ agents }: { agents: Agent[] }) {
             >
               <span className="text-lg">{agent.avatar}</span>
               <div className="flex-1">
-                <div className="font-medium">{agent.name}</div>
+                <div className="font-medium">
+                  {agent.name}
+                  {isCoderOnly && <span className="ml-1.5 text-[10px] font-normal text-muted-foreground/60">(groups only)</span>}
+                </div>
                 <div className="text-xs text-muted-foreground">{agent.role}</div>
               </div>
               {selected.includes(agent.id) && (
                 <span className="text-primary">✓</span>
               )}
             </button>
-          ))}
+            );
+          })}
         </div>
       </div>
 

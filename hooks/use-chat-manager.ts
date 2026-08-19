@@ -20,7 +20,37 @@ type StreamingEvent =
   | { type: "tool_call"; agentId: string; tool: string; args: Record<string, unknown> }
   | { type: "tool_result"; agentId: string; tool: string; result: unknown; error?: string }
   | { type: "message_end"; agentId: string; messageId: string; content: string }
+  | { type: "heartbeat"; tool: string }
   | { type: "error"; message: string };
+
+const TOOL_ACTIVITIES: Record<string, (args: Record<string, unknown>) => string> = {
+  github_read_file: (a) => `reading ${a.path ?? "files"}`,
+  github_list_files: (a) => `browsing ${a.path ?? "files"}`,
+  github_list_repos: () => "listing repositories",
+  github_edit_file: (a) => `editing ${a.path ?? "code"}`,
+  github_delete_file: (a) => `deleting ${a.path ?? "a file"}`,
+  github_review: () => "reviewing code",
+  github_get_commits: () => "checking git history",
+  netlify_deploy: () => "deploying to Netlify",
+  netlify_list_deploys: () => "checking deploy status",
+  serper_search: (a) => `searching the web${a.query ? ` for "${String(a.query).slice(0, 40)}"` : ""}`,
+  web_fetch: () => "fetching a web page",
+  image_gen: () => "generating an image",
+  social_post_x: () => "posting to X",
+  gmail_send: () => "sending an email",
+  gmail_search: () => "searching emails",
+  gmail_read: () => "reading an email",
+  calendar_create: () => "creating a calendar event",
+  calendar_list: () => "checking calendar",
+  memory_save: () => "saving to memory",
+  memory_load: () => "loading memory",
+  draft_action: () => "preparing a draft",
+  message_agent: (a) => `messaging ${a.targetAgent ?? "an agent"}`,
+  file_read: (a) => `reading ${a.path ?? "a file"}`,
+  file_write: (a) => `writing ${a.path ?? "a file"}`,
+  file_list: () => "listing files",
+  code_exec: () => "running code",
+};
 
 export function useChatManager(
   chat: ClientChat,
@@ -36,6 +66,7 @@ export function useChatManager(
     }))
   );
   const [isStreaming, setIsStreaming] = useState(false);
+  const [activity, setActivity] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const upsertStreamingMessage = useCallback(
@@ -152,6 +183,13 @@ export function useChatManager(
                   });
                   return { ...m, toolCalls };
                 });
+                {
+                  const agent = members.find((a) => a.id === event.agentId);
+                  const activityFn = TOOL_ACTIVITIES[event.tool];
+                  if (agent && activityFn) {
+                    setActivity(`${agent.name} is ${activityFn(event.args)}...`);
+                  }
+                }
                 break;
               case "tool_result":
                 upsertStreamingMessage(event.agentId, (m) => {
@@ -170,6 +208,7 @@ export function useChatManager(
                   content: event.content,
                   streaming: false,
                 }));
+                setActivity(null);
                 break;
               case "error":
                 setMessages((prev) => [
@@ -211,6 +250,7 @@ export function useChatManager(
       ]);
     } finally {
       setIsStreaming(false);
+      setActivity(null);
       abortRef.current = null;
     }
   }, [chat.id, members, upsertStreamingMessage]);
@@ -222,6 +262,7 @@ export function useChatManager(
   return {
     messages,
     isStreaming,
+    activity,
     sendMessage,
     stopStreaming,
   };

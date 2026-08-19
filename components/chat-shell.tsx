@@ -13,6 +13,7 @@ type SidebarChat = {
   routingMode: string;
   isDefault: boolean;
   members: { id: string; name: string; avatar: string | null; role: string }[];
+  lastMessage: { content: string; createdAt: string; senderName: string } | null;
 };
 
 export function ChatShell({

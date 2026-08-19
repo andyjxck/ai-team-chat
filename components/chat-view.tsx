@@ -15,7 +15,7 @@ export function ChatView({
   members: ClientAgent[];
   initialMessages: ClientMessage[];
 }) {
-  const { messages, isStreaming, sendMessage, stopStreaming } = useChatManager(
+  const { messages, isStreaming, activity, sendMessage, stopStreaming } = useChatManager(
     chat,
     members,
     initialMessages
@@ -54,7 +54,7 @@ export function ChatView({
         {isStreaming && (
           <div className="flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary animate-pulse">
             <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-            working...
+            {activity ?? "working..."}
           </div>
         )}
       </div>

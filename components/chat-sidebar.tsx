@@ -9,6 +9,17 @@ import { Avatar, AvatarGroup } from "./avatar";
 import { useState } from "react";
 import Image from "next/image";
 
+function formatRelativeTime(iso: string): string {
+  const now = Date.now();
+  const then = new Date(iso).getTime();
+  const diff = Math.floor((now - then) / 1000);
+  if (diff < 60) return "now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d`;
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 type SidebarChat = {
   id: string;
   name: string;
@@ -16,6 +27,7 @@ type SidebarChat = {
   routingMode: string;
   isDefault: boolean;
   members: { id: string; name: string; avatar: string | null; role: string }[];
+  lastMessage: { content: string; createdAt: string; senderName: string } | null;
 };
 
 export function ChatSidebar({
@@ -28,8 +40,16 @@ export function ChatSidebar({
   const pathname = usePathname();
   const [search, setSearch] = useState("");
 
-  const dmChats = chats.filter((c) => c.type === "dm");
-  const groupChats = chats.filter((c) => c.type === "group");
+  const dmChats = chats.filter((c) => c.type === "dm").sort((a, b) => {
+    const aTime = a.lastMessage ? new Date(a.lastMessage.createdAt).getTime() : 0;
+    const bTime = b.lastMessage ? new Date(b.lastMessage.createdAt).getTime() : 0;
+    return bTime - aTime;
+  });
+  const groupChats = chats.filter((c) => c.type === "group").sort((a, b) => {
+    const aTime = a.lastMessage ? new Date(a.lastMessage.createdAt).getTime() : 0;
+    const bTime = b.lastMessage ? new Date(b.lastMessage.createdAt).getTime() : 0;
+    return bTime - aTime;
+  });
 
   const filteredDms = dmChats.filter((c) =>
     c.name.toLowerCase().includes(search.toLowerCase()),
@@ -208,8 +228,18 @@ function ChatLink({
           {isCodingTeam && (
             <Code2 className="h-3 w-3 shrink-0 text-blue-400" />
           )}
+          {chat.lastMessage && (
+            <span className="ml-auto shrink-0 text-[10px] text-white/25">
+              {formatRelativeTime(chat.lastMessage.createdAt)}
+            </span>
+          )}
         </div>
-        {isGroup ? (
+        {chat.lastMessage ? (
+          <p className="truncate text-xs text-white/35">
+            <span className="text-white/25">{chat.lastMessage.senderName}: </span>
+            {chat.lastMessage.content}
+          </p>
+        ) : isGroup ? (
           <p className="truncate text-xs text-white/25">
             {chat.members.map(m => m.name).join(", ")}
           </p>

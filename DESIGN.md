@@ -12,10 +12,10 @@ websites, generate leads, draft legal docs, and more.
 - A personal Slack-like UI built around **chats**: individual DMs with each agent
   and group chats with selected agents.
 - **Default chats (auto-created on first run):**
-  - 7 individual DMs — one per agent (Maya, Leo, Wade, Sage, Eve, Ray, Lex)
+  - 7 individual DMs — one per agent (Maya, Leo, Sally, Sally, Evie, Evie, Lex)
   - 1 "All Team" group chat containing all 7 agents
 - **Custom chats:** you can create a new chat and pick which agents are in it
-  (e.g. "Marketing squad" = Maya + Sage, "Web build" = Wade + Sage + Eve).
+  (e.g. "Marketing squad" = Maya + Sally, "Web build" = Sally + Sally + Evie).
 - 7 named AI agents, each with a personality, role, and a real tool set.
 - Agents can use tools to take real actions (post, email, schedule, search, code).
 - @mention an agent to address them; agents can talk to each other in a group chat.
@@ -50,10 +50,10 @@ websites, generate leads, draft legal docs, and more.
 | Web search | Serper.dev | 2,500 free searches, then cheap. Google results |
 | Database | SQLite + Drizzle ORM | Zero-config local DB, type-safe queries |
 | Auth | NextAuth.js (Credentials provider) | Single-password local auth for now |
-| Realtime | Server-Sent Events (SSE) | Simpler than WebSockets for v1, native streaming support |
+| Realtime | Server-Sent Evients (SSE) | Simpler than WebSockets for v1, native streaming support |
 | UI | Tailwind CSS + shadcn/ui | Fast, consistent, good-looking by default |
 | Image gen | Pollinations.ai (default) + Gemini image gen | Pollinations is free, no key. Gemini for higher quality |
-| Code exec | Sandboxed subprocess (Python/Node) with timeout + working dir isolation | For Wade (Website Builder) |
+| Code exec | Sandboxed subprocess (Python/Node) with timeout + working dir isolation | For Sally (Website Builder) |
 | Social posting | X API v2, LinkedIn API, Instagram Graph API, Facebook Graph API | Real posting via official APIs |
 | Calendar | Google Calendar API (OAuth 2.0) | Read/create/edit events |
 | Email | Gmail API (OAuth 2.0) | Read/send email |
@@ -212,9 +212,9 @@ ai-team-chat/
 │       └── key-status.tsx
 │
 ├── workspace/                    # Agent file I/O sandbox (gitignored)
-│   ├── websites/                 # Wade's output
+│   ├── websites/                 # Sally's output
 │   ├── social-posts/             # Maya's drafted posts
-│   ├── seo-reports/              # Sage's reports
+│   ├── seo-reports/              # Sally's reports
 │   ├── legal-docs/               # Lex's drafts
 │   └── leads/                    # Leo's exports
 │
@@ -291,7 +291,7 @@ leads                           -- Leo's CRM
   createdAt     integer
   updatedAt     integer
 
-contacts                        -- Ray's contact book
+contacts                        -- Evie's contact book
   id            text PK
   name          text
   email         text
@@ -299,7 +299,7 @@ contacts                        -- Ray's contact book
   notes         text
   createdAt     integer
 
-reminders                       -- Eve's reminders
+reminders                       -- Evie's reminders
   id            text PK
   agentId       text
   title         text
@@ -355,32 +355,32 @@ Each agent has: id, name, role, avatar, persona (system prompt), tools.
   - Never fabricate contact info — only save what you can verify from a source.
   - Summarise pipeline status on request.
 
-### Wade — Website Builder
+### Sally — Website Builder
 - **Personality**: Practical, detail-oriented, ships fast. Talks in components and
   file paths. Asks clarifying questions about scope before building.
 - **Tools**: `serper_search`, `web_fetch`, `file_read`, `file_write`,
   `code_exec`, `memory`
 - **In default chats**: his DM + "All Team"
 - **System prompt outline**:
-  - You are Wade, a website builder.
+  - You are Sally, a website builder.
   - Write files to `workspace/websites/<project>/`.
   - Use `code_exec` to run build commands and verify output.
   - Prefer modern, minimal stacks (Next.js, Tailwind) unless told otherwise.
   - Show the user the file tree and a preview plan before writing lots of files.
 
-### Sage — SEO Expert
+### Sally — SEO Expert
 - **Personality**: Analytical, patient, evidence-based. Cites sources. Thinks in
   keywords, intent, and search volume.
 - **Tools**: `serper_search`, `web_fetch`, `file_write`, `memory`
 - **In default chats**: her DM + "All Team"
 - **System prompt outline**:
-  - You are Sage, an SEO expert.
+  - You are Sally, an SEO expert.
   - Use Serper to check rankings and research keywords.
   - Use web_fetch to audit on-page SEO of a URL.
   - Write reports to `workspace/seo-reports/`.
   - Always cite the source URL for any data point.
 
-### Eve — Executive Assistant
+### Evie — Executive Assistant
 - **Personality**: Calm, organised, anticipates needs. Concise. Proactive about
   reminders and follow-ups.
 - **Tools**: `calendar_list`, `calendar_create`, `calendar_update`,
@@ -388,21 +388,21 @@ Each agent has: id, name, role, avatar, persona (system prompt), tools.
   `reminder_create`, `reminder_list`, `memory`, `file_read`, `serper_search`
 - **In default chats**: her DM + "All Team"
 - **System prompt outline**:
-  - You are Eve, an executive assistant.
+  - You are Evie, an executive assistant.
   - Manage the user's calendar and email via Google APIs.
   - Create reminders for follow-ups.
   - Summarise emails and propose replies; never send without confirmation unless
     told to auto-send.
   - Keep notes in memory about the user's preferences.
 
-### Ray — Receptionist
+### Evie — Receptionist
 - **Personality**: Friendly, welcoming, efficient. First point of contact. Routes
   requests to the right agent.
 - **Tools**: `contacts_create`, `contacts_search`, `memory`,
   `message_agent` (forward to another agent), `reminder_create`
 - **In default chats**: his DM + "All Team"
 - **System prompt outline**:
-  - You are Ray, a receptionist.
+  - You are Evie, a receptionist.
   - Greet incoming requests, figure out who should handle them, and forward.
   - Maintain the contact book.
   - Take messages when the user is "away".
@@ -483,11 +483,11 @@ All social posts log to the `social_posts` table with status + external id.
 
 ### CRM / contacts / reminders
 - **`leads_create`, `leads_update`, `leads_list`** — Leo's CRM (SQLite).
-- **`contacts_create`, `contacts_search`** — Ray's contact book (SQLite).
-- **`reminder_create`, `reminder_list`** — Eve's reminders (SQLite).
+- **`contacts_create`, `contacts_search`** — Evie's contact book (SQLite).
+- **`reminder_create`, `reminder_list`** — Evie's reminders (SQLite).
 
 ### Inter-agent
-- **`message_agent(agentId, message)`** — Ray (or any agent) can send a message
+- **`message_agent(agentId, message)`** — Evie (or any agent) can send a message
   to another agent in a channel, triggering that agent to respond. Implemented by
   inserting a message and invoking the orchestrator for the target agent.
 
@@ -617,21 +617,21 @@ DB_PATH=./db/local.db
 
 ## 13. Build sequence
 
-Even though everything is v1, the build is sequenced so we always have something
+Evien though everything is v1, the build is sequenced so we always have something
 working end-to-end:
 
 1. **Scaffold**: Next.js + Tailwind + shadcn/ui + Drizzle + SQLite + NextAuth.
    `.env.example` + `.env.local` with placeholders. App boots, login works.
-2. **Core chat**: 2 agents (Eve + Maya), their DMs + 1 group chat, streaming
+2. **Core chat**: 2 agents (Evie + Maya), their DMs + 1 group chat, streaming
    replies, message history persisted. No tools yet — proves the orchestrator +
    SSE + DB + chat routing.
 3. **All 7 agents + default chat seeding (7 DMs + "All Team") + @mentions +
    custom chat creation UI.**
 4. **Tool framework**: `serper_search` + `web_fetch` + `memory` + `files` for all
    agents that need them.
-5. **Code exec + image gen** (Wade + Maya).
-6. **CRM / contacts / reminders** (Leo + Ray + Eve).
-7. **Google OAuth flow + Calendar + Gmail** (Eve).
+5. **Code exec + image gen** (Sally + Maya).
+6. **CRM / contacts / reminders** (Leo + Evie + Evie).
+7. **Google OAuth flow + Calendar + Gmail** (Evie).
 8. **Social posting**: X, LinkedIn, Instagram, Facebook (Maya).
 9. **Settings page**: edit agent personas/tools, see which keys are configured.
 10. **Polish**: PWA manifest, mobile responsive, avatars, tool-call UI cards.
@@ -675,8 +675,8 @@ pnpm dev
   I'll walk you through creating one. For personal use you can keep the app in
   "testing" mode with your own email as a test user — no verification needed.
 - **Code execution** is sandboxed (subprocess + timeout + working dir) but is
-  still local execution. Wade runs code on your machine. We restrict network by
-  default and cap memory/CPU. Don't let Wade run untrusted code from the web
+  still local execution. Sally runs code on your machine. We restrict network by
+  default and cap memory/CPU. Don't let Sally run untrusted code from the web
   without review.
 - **Legal Assistant** always disclaims; UI also shows a persistent disclaimer in
   `#legal`.

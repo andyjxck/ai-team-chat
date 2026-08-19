@@ -42,8 +42,9 @@ pnpm dev
 
 ## Default chats (auto-created)
 
-- 7 DMs — one per agent (Maya, Leo, Wade, Sage, Eve, Ray, Lex)
-- "All Team" — group chat with all 7 agents (@mention to address someone)
+- 5 DMs — one per agent (Maya, Leo, Sally, Evie, Lex)
+- "All Team" — group chat with Maya, Leo, Sally, Evie, Lex, Zack
+- "Coding Team" — group chat with Zack, Kevin, Beepbop
 
 ## Creating custom chats
 
@@ -55,13 +56,14 @@ Click "New Chat" in the sidebar. Pick a name, select agents, choose routing mode
 
 | Agent | Role | Tools |
 |---|---|---|
-| Maya 📱 | Social Media Manager | search, web fetch, image gen, social posting (X/LinkedIn/IG/FB), files |
+| Maya 📱 | Social Media Manager | search, web fetch, image gen, social posting (X), files |
 | Leo 🎯 | Lead Generator | search, web fetch, CRM (leads table), files |
-| Wade 🔧 | Website Builder | search, web fetch, files, code execution |
-| Sage 🔍 | SEO Expert | search, web fetch, files |
-| Eve 📋 | Executive Assistant | Google Calendar, Gmail, reminders, memory, files, search |
-| Ray 👋 | Receptionist | contacts, memory, inter-agent messaging, reminders |
+| Sally 🌐 | Website & SEO Builder | search, web fetch, files, code execution |
+| Evie 📋 | Executive Assistant | Google Calendar, Gmail, reminders, memory, files, search, contacts |
 | Lex ⚖️ | Legal Assistant | search, web fetch, files, memory (always disclaims) |
+| Zack ⚡ | Senior Engineer | GitHub tools, Netlify deploy, code execution |
+| Kevin 🏗️ | Software Architect | GitHub tools, Netlify deploy, code execution |
+| Beepbop 🤖 | Creative Coder | GitHub tools, Netlify deploy, code execution |
 
 ## API keys needed
 

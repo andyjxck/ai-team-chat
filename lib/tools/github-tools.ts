@@ -92,6 +92,13 @@ export const githubEditFile = tool({
       if (!(await isRepoOpened(owner, repo))) {
         return { error: `Repo ${owner}/${repo} is not opened. Tell the user to open it on the Repos page first.` };
       }
+      // Fetch the old content before updating (for diff display)
+      let previousContent: string | null = null;
+      try {
+        previousContent = await readFile(owner, repo, path);
+      } catch {
+        // File might be new — that's fine
+      }
       const result = await createOrUpdateFile(
         owner,
         repo,
@@ -99,11 +106,17 @@ export const githubEditFile = tool({
         content,
         message ?? `Update ${path}`,
       );
+      const oldLines = previousContent ? previousContent.split("\n").length : 0;
+      const newLines = content.split("\n").length;
       return {
         success: true,
         path,
         commitSha: result.commit.sha,
         commitUrl: result.commit.html_url,
+        isNew: !previousContent,
+        oldLineCount: oldLines,
+        newLineCount: newLines,
+        addedLines: newLines - oldLines,
         message: `Committed ${path} to ${owner}/${repo}. Commit: ${result.commit.sha.slice(0, 7)}`,
       };
     } catch (err) {

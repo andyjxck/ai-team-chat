@@ -10,10 +10,10 @@ export type ModelProvider = "google" | "openai" | "anthropic" | "groq";
 // All these models have free tiers on Google AI Studio
 // Ordered from most capable to most economical
 const GOOGLE_FALLBACK_MODELS = [
+  "gemini-3.1-flash-lite",
   "gemini-2.5-flash",
   "gemini-2.5-flash-lite",
   "gemini-2.0-flash",
-  "gemini-2.0-flash-lite",
 ];
 
 // Track which model index we're on

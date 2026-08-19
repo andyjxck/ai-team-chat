@@ -98,6 +98,9 @@ export function useChatManager(
   );
 
   const sendMessage = useCallback(async (text: string, mentions: string[], replyToAgentId?: string) => {
+    // 1. Validate Input
+    if (!text.trim()) return;
+
     const humanMsg: ClientMessage = {
       id: `temp-${Date.now()}`,
       chatId: chat.id,
@@ -122,23 +125,11 @@ export function useChatManager(
         signal: controller.signal,
       });
 
-      if (!res.ok || !res.body) {
-        const errText = await res.text();
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `err-${Date.now()}`,
-            chatId: chat.id,
-            senderId: "system",
-            senderType: "agent",
-            content: `Error: ${errText}`,
-            mentions: [],
-            toolCalls: [],
-            createdAt: new Date().toISOString(),
-            agent: SYSTEM_AGENT,
-          },
-        ]);
-        return;
+      if (!res.ok) {
+        throw new Error(`Server returned ${res.status}: ${await res.text()}`);
+      }
+      if (!res.body) {
+        throw new Error("No response body received from server");
       }
 
       const reader = res.body.getReader();
@@ -211,29 +202,16 @@ export function useChatManager(
                 setActivity(null);
                 break;
               case "error":
-                setMessages((prev) => [
-                  ...prev,
-                  {
-                    id: `err-${Date.now()}`,
-                    chatId: chat.id,
-                    senderId: "system",
-                    senderType: "agent",
-                    content: event.message,
-                    mentions: [],
-                    toolCalls: [],
-                    createdAt: new Date().toISOString(),
-                    agent: SYSTEM_AGENT,
-                  },
-                ]);
-                break;
+                throw new Error(event.message);
             }
-          } catch {
-            // ignore parse errors
+          } catch (e) {
+            console.error("Error parsing event:", e);
           }
         }
       }
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
+      console.error("Chat Error:", err);
       setMessages((prev) => [
         ...prev,
         {

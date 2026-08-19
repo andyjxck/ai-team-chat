@@ -79,12 +79,12 @@ export const githubReadFile = tool({
 });
 
 export const githubEditFile = tool({
-  description: "Edit or create a file in a GitHub repository. This creates a REAL commit and pushes it. Netlify will auto-build if connected. ALWAYS read the file first before editing. Only works on repos the user has opened.",
+  description: "Edit or create a file in a GitHub repository. This creates a REAL Git commit and pushes it to GitHub. This is a REAL tool call, not text. CALL this tool — do not write its name in your text output. The content parameter must be the COMPLETE file content from line 1 to the end, not a diff or patch. Read the file first with github_read_file, then provide the full modified content here. Only works on repos the user has opened.",
   inputSchema: z.object({
     owner: z.string().describe("Repo owner (username)"),
     repo: z.string().describe("Repository name"),
     path: z.string().describe("File path (e.g. 'app/api/chat/route.ts')"),
-    content: z.string().describe("The FULL new content of the file (not a diff)"),
+    content: z.string().describe("The COMPLETE new file content — every single line, from the first line to the last. Not a diff. Not just the changed parts. The ENTIRE file."),
     message: z.string().optional().describe("Commit message (e.g. 'Fix auth bug in route.ts')"),
   }),
   execute: async ({ owner, repo, path, content, message }) => {

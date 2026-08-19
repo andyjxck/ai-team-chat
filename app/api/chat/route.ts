@@ -476,6 +476,9 @@ The ai-team-chat repo IS your own code. You can read it, find bugs, fix them, an
     // Known agent IDs for validation
     const knownAgentIds = new Set(orderedIds);
 
+    // Fallback: if model produces text without [agent_id] markers, use first agent
+    let fallbackAgentUsed = false;
+
     // Stream text and tool calls — heartbeats keep Netlify alive during tool execution
     for await (const part of result.fullStream) {
       if (part.type === "text-delta") {
@@ -529,10 +532,22 @@ The ai-team-chat repo IS your own code. You can read it, find bugs, fix them, an
             const idx = buffer.indexOf(match[0]);
             buffer = buffer.slice(idx + match[0].length);
           } else {
-            if (buffer.length > 30) {
-              buffer = buffer.slice(-30);
+            // No marker found — if buffer is long enough, use first agent as fallback
+            if (buffer.length > 50 && !fallbackAgentUsed && orderedIds[0]) {
+              fallbackAgentUsed = true;
+              currentAgentId = orderedIds[0];
+              currentAgentText = "";
+              const startDelay = agentIndex === 0 ? 400 : 800 + Math.random() * 600;
+              await sleep(startDelay);
+              sendEvent({ type: "agent_start", agentId: currentAgentId });
+              agentIndex++;
+              // Don't break — continue with this agent
+            } else {
+              if (buffer.length > 30) {
+                buffer = buffer.slice(-30);
+              }
+              break;
             }
-            break;
           }
         } else {
           // Inside an agent block — check for a new [agent_id] marker
@@ -663,11 +678,18 @@ The ai-team-chat repo IS your own code. You can read it, find bugs, fix them, an
             await finalizeAgent(retryAgentId, retryAgentText, chatId, sendEvent, agentResponses);
           }
         } else {
-          // Even without markers, send the text as a system message so we can debug
-          sendEvent({
-            type: "error",
-            message: `No agent markers found. Retry text: ${retryText.slice(0, 500)}`,
-          });
+          // No markers found — just send the text as the first expected agent
+          const fallbackAgentId = orderedIds[0];
+          if (fallbackAgentId && retryText.trim()) {
+            sendEvent({ type: "agent_start", agentId: fallbackAgentId });
+            sendEvent({ type: "token", agentId: fallbackAgentId, text: retryText });
+            await finalizeAgent(fallbackAgentId, retryText, chatId, sendEvent, agentResponses);
+          } else {
+            sendEvent({
+              type: "error",
+              message: `No response generated. Retry text: ${retryText.slice(0, 500)}`,
+            });
+          }
         }
       } catch (retryErr) {
         if (isRateLimitError(retryErr)) {

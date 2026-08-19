@@ -428,9 +428,9 @@ The ai-team-chat repo IS your own code. You can read it, find bugs, fix them, an
     }
     const groupTools = getToolsForAgent(Array.from(allToolNames));
 
-    // For group chats with tools, do text first (fast), then tools in follow-up
-    // This avoids Netlify's 30-second timeout
-    const useToolsFirst = false; // Always generate text first
+    // Give agents tools in the main call so they can actually DO work
+    // Heartbeats during tool calls keep the Netlify connection alive
+    const hasTools = isCodingTeam || isAllTeam;
     const result = streamText({
       model,
       system: systemPrompt,
@@ -438,9 +438,9 @@ The ai-team-chat repo IS your own code. You can read it, find bugs, fix them, an
         ...historyMessages.slice(0, -1),
         { role: "user", content: userMessage } as ModelMessage,
       ],
-      tools: useToolsFirst ? groupTools : undefined,
-      stopWhen: isStepCount(1),
-      maxOutputTokens: isCodingTeam || isAllTeam ? 4000 : undefined,
+      tools: hasTools ? groupTools : undefined,
+      stopWhen: isStepCount(hasTools ? 20 : 1),
+      maxOutputTokens: hasTools ? 12000 : undefined,
     });
 
     // ─── Parse the stream for [agent_id] markers ───
@@ -463,7 +463,9 @@ The ai-team-chat repo IS your own code. You can read it, find bugs, fix them, an
         .replace(/\*?\*?\[\w+\]\*?\*?\s*/g, "")
         .replace(/@@agent:\w+/g, "")
         .replace(/@@end/g, "")
-        .replace(/@@action:\w+\([^)]*\)/g, "") // Strip fake tool calls
+        .replace(/@@action:\w+\([^)]*\)/g, "") // Strip @@action:tool(...)
+        .replace(/\/\w+\([^)]*\)/g, "") // Strip /tool(...)
+        .replace(/:\w+\([^)]*\)/g, "") // Strip :tool(...)
         .replace(/@@\w+/g, "") // Strip any other @@ markers
         .replace(/^\s*\n?/, "");
     }
@@ -471,12 +473,33 @@ The ai-team-chat repo IS your own code. You can read it, find bugs, fix them, an
     // Known agent IDs for validation
     const knownAgentIds = new Set(orderedIds);
 
-    // Stream text — no tools in first pass, so this is fast
+    // Stream text and tool calls — heartbeats keep Netlify alive during tool execution
     for await (const part of result.fullStream) {
       if (part.type === "text-delta") {
         const delta = (part as { text: string }).text;
         fullText += delta;
         buffer += delta;
+      } else if (part.type === "tool-call") {
+        // Send real tool call event + heartbeat to keep connection alive
+        const toolName = (part as { toolName: string }).toolName;
+        const toolInput = (part as { input: unknown }).input;
+        // Attribute to the right agent
+        let toolAgentId = "zack";
+        if (["zack", "kevin", "beepbop"].some(id => Object.keys(agentResponses).includes(id))) {
+          toolAgentId = Object.keys(agentResponses).find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? "zack";
+        }
+        sendEvent({ type: "tool_call", agentId: toolAgentId, tool: toolName, args: toolInput });
+        sendEvent({ type: "heartbeat", tool: toolName });
+      } else if (part.type === "tool-result") {
+        const toolName = (part as { toolName: string }).toolName;
+        const output = (part as { output: unknown }).output;
+        let toolAgentId = "zack";
+        if (["zack", "kevin", "beepbop"].some(id => Object.keys(agentResponses).includes(id))) {
+          toolAgentId = Object.keys(agentResponses).find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? "zack";
+        }
+        const error = (output as { error?: string })?.error;
+        sendEvent({ type: "tool_result", agentId: toolAgentId, tool: toolName, result: output, error });
+        sendEvent({ type: "heartbeat", tool: toolName, result: "done" });
       }
 
       // Process buffer for [agent_id] markers
@@ -695,7 +718,8 @@ The ai-team-chat repo IS your own code. You can read it, find bugs, fix them, an
     // Parse those and execute them for real.
     try {
       if (groupTools) {
-        const fakeToolPattern = /@@action:(\w+)\(([^)]*)\)/g;
+        // Match @@action:tool(...) OR /tool(...) OR :tool(...) patterns
+        const fakeToolPattern = /(?:@@action:|\/|:)(\w+)\(([^)]*)\)/g;
         const fakeMatches = [...fullText.matchAll(fakeToolPattern)];
 
         // Map fake tool names to real tool names

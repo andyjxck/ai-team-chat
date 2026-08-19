@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { supabase } from "@/db/client";
 import type { Chat, ChatMember, Message } from "@/db/schema-types";
-import { getModel, advanceFallbackModel, isRateLimitError, markModelSuccess } from "@/lib/llm";
+import { getModel, advanceFallbackModel, isRateLimitError, isModelError, markModelSuccess } from "@/lib/llm";
 import { getAgentConfig } from "@/agents/config";
 import { getToolsForAgent } from "@/lib/tools";
 import { nanoid } from "nanoid";
@@ -102,6 +102,9 @@ export async function POST(req: NextRequest) {
         if (isRateLimitError(err)) {
           advanceFallbackModel();
           sendEvent({ type: "error", message: `Rate limited on current model. Switched to fallback. Try sending again.` });
+        } else if (isModelError(err)) {
+          advanceFallbackModel();
+          sendEvent({ type: "error", message: `Model error, switched to fallback. Try sending again.` });
         } else {
           sendEvent({
             type: "error",
@@ -222,9 +225,9 @@ If you're unsure whether the user wants you to take action, ASK them first inste
     });
     sendEvent({ type: "message_end", agentId, messageId: agentMessageId, content: fullText });
   } catch (err) {
-    if (isRateLimitError(err)) {
+    if (isRateLimitError(err) || isModelError(err)) {
       advanceFallbackModel();
-      sendEvent({ type: "error", message: `Rate limited on current model. Switched to fallback. Try sending again.` });
+      sendEvent({ type: "error", message: `Model error, switched to fallback. Try sending again.` });
     } else {
       sendEvent({
         type: "error",
@@ -264,13 +267,19 @@ async function handleGroup(
   ).join("\n\n");
 
   const routingRule = isImplicitRouting
-    ? `The user did not address anyone specifically. Each agent should ONLY respond if:
-1. The message is relevant to their job/role, OR
-2. They disagree with or want to add to what another agent said, OR
-3. It's a casual greeting — but keep it SHORT and casual ("hey", "hi boss", "yo"). Do NOT introduce yourself or explain your job. If 2+ agents already greeted, skip.
+    ? `The user did not address anyone specifically. ONE agent should respond — the one whose role is MOST relevant to the message.
 
-If an agent has nothing to add, simply don't include them. Not everyone needs to speak.`
-    : `The user specifically addressed certain agents. Those agents should respond first. Others can chime in only if they have something important to add.`;
+CRITICAL RULES:
+- Pick the SINGLE best agent to respond. Only ONE agent speaks unless there's a real reason for more.
+- Other agents should ONLY join in if:
+  1. They DISAGREE with what the first agent said, OR
+  2. They have something SUBSTANTIAL to add that the first agent missed
+- DO NOT chime in just to agree, praise, or say "good point." That's noise. If you agree, say nothing.
+- DO NOT introduce yourself or explain your job unless asked.
+- For casual greetings ("hey", "what's up"), ONE agent responds casually. Not everyone.
+- If the message is about social media → Maya responds. About leads/business → Leo. About websites/SEO → Sally. About scheduling/email/admin → Evie. About legal → Lex. About code → Zack. Only one, unless someone has a real disagreement.
+- If an agent has nothing to add, simply don't include them. Silence is better than noise.`
+    : `The user specifically addressed certain agents. Those agents respond. Others should ONLY chime in if they disagree or have something substantial to add. Do NOT respond just to agree.`;
 
   const replyContext = replyToAgentId
     ? `\n\nIMPORTANT: The user is replying to ${getAgentConfig(replyToAgentId)?.name ?? "someone"}. That agent should respond FIRST.`
@@ -319,12 +328,12 @@ Rules:
 ${routingRule}
 
 ## Team Dynamics
-- Agents can talk to each other, not just to the user. If Maya suggests a post, Sally might chime in about SEO. If Leo finds an app idea, Zack might comment on technical feasibility.
-- Don't force every agent to respond — only those with something relevant to add.
-- Let conversations flow naturally between team members.
+- ONE agent responds per message. Others ONLY join if they disagree or have something substantial to add.
+- Agents can talk to each other, but only when there's a real reason — a disagreement, a missing perspective, a correction.
+- DO NOT respond just to agree, praise, or repeat what someone else said. If you agree, stay silent.
 - If an agent disagrees with another agent, they should say so respectfully.
-- When one agent is doing a tool call (like github_edit_file or github_read_file), the OTHER agents should still comment on what's happening. For example, if Zack is editing a file, Kevin might say "looks good" or "wait, I'd change the approach" and Beepbop might react. Don't go silent just because one person is using a tool.
-- Each agent should always introduce their perspective with their [agent_id] marker, even if they're just commenting on another agent's work.
+- When one agent is doing a tool call (like github_edit_file or github_read_file), the OTHER agents should NOT comment unless they have a real concern. Don't say "looks good" or "nice work" — that's noise.
+- Each agent should always introduce their perspective with their [agent_id] marker.
 
 ## History Context
 This is an ongoing conversation. Respond naturally to the user's latest message.
@@ -777,9 +786,9 @@ The ai-team-chat repo IS your own code. You can read it, find bugs, fix them, an
     }
 
   } catch (err) {
-    if (isRateLimitError(err)) {
+    if (isRateLimitError(err) || isModelError(err)) {
       advanceFallbackModel();
-      sendEvent({ type: "error", message: `Rate limited on current model. Switched to fallback. Try sending again.` });
+      sendEvent({ type: "error", message: `Model error, switched to fallback. Try sending again.` });
     } else {
       sendEvent({
         type: "error",

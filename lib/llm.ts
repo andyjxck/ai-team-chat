@@ -103,6 +103,15 @@ export function isRateLimitError(err: unknown): boolean {
 }
 
 /**
+ * Check if an error is a model error (not found, deprecated, etc.)
+ */
+export function isModelError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return msg.includes("not found") || msg.includes("not supported") || msg.includes("deprecated") || msg.includes("invalid model") || msg.includes("model not") || msg.includes("404");
+}
+
+/**
  * Get the current fallback chain status (for debugging/health check).
  */
 export function getFallbackStatus() {

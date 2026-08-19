@@ -63,6 +63,18 @@ export function GithubReposView() {
         const d = await res.json();
         throw new Error(d.error || "Failed to toggle");
       }
+      // Persist to localStorage as fallback (in case Supabase table doesn't exist)
+      try {
+        const key = "github-opened-repos";
+        const stored = JSON.parse(localStorage.getItem(key) ?? "[]") as number[];
+        if (!repo.opened) {
+          if (!stored.includes(repo.id)) stored.push(repo.id);
+        } else {
+          const idx = stored.indexOf(repo.id);
+          if (idx >= 0) stored.splice(idx, 1);
+        }
+        localStorage.setItem(key, JSON.stringify(stored));
+      } catch { /* ignore localStorage errors */ }
       setRepos((prev) =>
         prev.map((r) =>
           r.id === repo.id

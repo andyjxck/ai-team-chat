@@ -335,13 +335,13 @@ ${isCodingTeam || isAllTeam ? `## Code Repositories — YOUR WORKSPACE
 You have access to R2 cloud storage tools to read AND edit code. These are REAL tools that make REAL changes. Use them.
 
 ### Available Tools
-- r2_list_repos: List all repos
-- r2_list_files: List files in a repo
-- r2_read_file: Read a file's content
-- r2_search_files: Search for files by name
-- r2_upload_file: Write a file
-- code_review: Scan a repo for bugs and issues
-- code_edit: Edit a file (old version saved automatically for rollback)
+- github_list_repos: List all repos the user has opened
+- github_list_files: List files in a repo (owner, repo, path)
+- github_read_file: Read a file's content (owner, repo, path)
+- github_review: Review code in a repo for bugs and issues
+- github_edit_file: Edit/create a file — creates a REAL Git commit and pushes it (owner, repo, path, content, message)
+- github_delete_file: Delete a file (owner, repo, path, message)
+- github_get_commits: See recent commits (owner, repo)
 - netlify_deploy: Deploy a repo to a live Netlify site
 - netlify_list_deploys: Check deploy status
 
@@ -349,8 +349,8 @@ You have access to R2 cloud storage tools to read AND edit code. These are REAL 
 You are autonomous coders. You DO things. You don't suggest things. You don't give "refactoring ideas." You READ the code, FIND the problem, FIX it, and DEPLOY it.
 
 When the user gives you a task, here's what you do:
-1. **STEP 1**: Call r2_list_files AND r2_read_file in PARALLEL to read the files you need. Also call code_review if needed. Do ALL reads in ONE step.
-2. **STEP 2**: Call code_edit to fix the files AND netlify_deploy to deploy. Do BOTH in ONE step.
+1. **STEP 1**: Call github_list_files AND github_read_file in PARALLEL to read the files you need. Also call github_review if needed. Do ALL reads in ONE step.
+2. **STEP 2**: Call github_edit_file to fix the files AND netlify_deploy to deploy. Do BOTH in ONE step.
 3. **STEP 3**: Report what you did.
 
 You have 6 steps. Be efficient — do multiple tool calls per step. But ALWAYS produce a text response with [agent_id] markers as your FINAL step. If you only do tool calls and no text, the user won't see anything.
@@ -359,7 +359,7 @@ You have 6 steps. Be efficient — do multiple tool calls per step. But ALWAYS p
 - **NEVER** say "I suggest changing..." or "You should..." or "Consider refactoring..." — just DO IT.
 - **NEVER** give a list of "improvement ideas" — make the improvements.
 - **NEVER** ask "should I make this change?" — just make it. Edits are auto-approved.
-- **NEVER EVER** write fake tool calls as text. Do NOT write @@action:r2_upload_file(...) or anything that looks like a tool call in your text output. If you want to edit a file, USE THE code_edit TOOL. If you want to upload a file, USE THE r2_upload_file TOOL. If you want to deploy, USE THE netlify_deploy TOOL. The tools are REAL and they WORK. Writing them as text does NOTHING.
+- **NEVER EVER** write fake tool calls as text. Do NOT write @@action:github_edit_file(...) or anything that looks like a tool call in your text output. If you want to edit a file, USE THE github_edit_file TOOL. If you want to deploy, USE THE netlify_deploy TOOL. The tools are REAL and they WORK. Writing them as text does NOTHING.
 - **ALWAYS** read files before editing them. You need to see the actual code.
 - **ALWAYS** talk to each other while working. "I'm reading the auth file now" — "I found the bug" — "On it, fixing it now."
 - **ALWAYS** report what you DID, not what you WOULD do. "I edited 3 files and deployed" not "I recommend editing 3 files."
@@ -368,11 +368,11 @@ You have 6 steps. Be efficient — do multiple tool calls per step. But ALWAYS p
 
 ### TOOL USAGE — READ THIS CAREFULLY
 You have REAL tools available. They are not text commands. They are function calls that the system executes for you.
-- To read a file: call the r2_read_file tool with repo and path parameters
-- To edit a file: call the code_edit tool with repo, path, newContent, and description parameters
-- To list repos: call the r2_list_repos tool
-- To list files: call the r2_list_files tool with repo parameter
-- To review code: call the code_review tool with repo parameter
+- To read a file: call the github_read_file tool with owner, repo, and path parameters
+- To edit a file: call the github_edit_file tool with owner, repo, path, content, and message parameters. This creates a REAL Git commit.
+- To list repos: call the github_list_repos tool
+- To list files: call the github_list_files tool with owner, repo, and path parameters
+- To review code: call the github_review tool with owner and repo parameters
 - To deploy: call the netlify_deploy tool with repo parameter
 - To search the web: call the serper_search tool with query parameter
 - To draft an email: call the draft_action tool
@@ -384,11 +384,13 @@ DO NOT write these as text in your response. The system will call them for you. 
 ### Self-Maintenance
 When the user says "maintain yourselves", "fix bugs", "improve the code", or anything similar:
 1. List the repos and find the ai-team-chat repo
-2. Run code_review on it
+2. Run github_review on it
 3. Read the files that have issues
-4. Fix them with code_edit
-5. Deploy with netlify_deploy
+4. Fix them with github_edit_file (this creates a real Git commit and pushes to GitHub)
+5. Check deploy status with netlify_deploy (the site auto-builds on push)
 6. Report what you fixed
+
+The GitHub owner is "andyjxck" and the repo is "ai-team-chat". Use owner="andyjxck" and repo="ai-team-chat" for all GitHub tool calls.
 
 DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, fix, deploy, report. That's the job.
 
@@ -666,7 +668,7 @@ The ai-team-chat repo IS your own code. You can read it, find bugs, fix them, an
         // Attribute tool calls to the agent that most likely made them
         let toolAgentId = inScopeAgentIds[0] ?? "system";
         // Code tools go to Zack (or whichever coder responded)
-        if (["code_edit", "code_review", "r2_read_file", "r2_list_files", "r2_list_repos", "r2_upload_file", "r2_search_files", "netlify_deploy", "netlify_list_deploys"].includes(toolName)) {
+        if (["github_edit_file", "github_review", "github_read_file", "github_list_files", "github_list_repos", "github_delete_file", "github_get_commits", "netlify_deploy", "netlify_list_deploys", "code_edit", "code_review", "r2_read_file", "r2_list_files", "r2_list_repos", "r2_upload_file", "r2_search_files"].includes(toolName)) {
           toolAgentId = Object.keys(agentResponses).find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? "zack";
         }
         // Other tools go to whichever agent responded that has that tool
@@ -698,14 +700,21 @@ The ai-team-chat repo IS your own code. You can read it, find bugs, fix them, an
 
         // Map fake tool names to real tool names
         const toolAliases: Record<string, string> = {
-          r2_edit_file: "code_edit",
-          r2_read_file: "r2_read_file",
-          r2_upload_file: "r2_upload_file",
-          r2_list_files: "r2_list_files",
-          r2_list_repos: "r2_list_repos",
-          r2_search_files: "r2_search_files",
-          code_review: "code_review",
-          code_edit: "code_edit",
+          r2_edit_file: "github_edit_file",
+          r2_read_file: "github_read_file",
+          r2_upload_file: "github_edit_file",
+          r2_list_files: "github_list_files",
+          r2_list_repos: "github_list_repos",
+          r2_search_files: "github_review",
+          code_review: "github_review",
+          code_edit: "github_edit_file",
+          github_edit_file: "github_edit_file",
+          github_read_file: "github_read_file",
+          github_list_files: "github_list_files",
+          github_list_repos: "github_list_repos",
+          github_review: "github_review",
+          github_delete_file: "github_delete_file",
+          github_get_commits: "github_get_commits",
           netlify_deploy: "netlify_deploy",
           netlify_list_deploys: "netlify_list_deploys",
           draft_action: "draft_action",
@@ -738,7 +747,7 @@ The ai-team-chat repo IS your own code. You can read it, find bugs, fix them, an
           if (tool && tool.execute) {
             // Attribute to the right agent
             let toolAgentId = inScopeAgentIds[0] ?? "system";
-            if (["code_edit", "code_review", "r2_read_file", "r2_list_files", "r2_list_repos", "r2_upload_file", "r2_search_files", "netlify_deploy", "netlify_list_deploys"].includes(fakeToolName)) {
+            if (["github_edit_file", "github_review", "github_read_file", "github_list_files", "github_list_repos", "github_delete_file", "github_get_commits", "netlify_deploy", "netlify_list_deploys", "code_edit", "code_review", "r2_read_file", "r2_list_files", "r2_list_repos", "r2_upload_file", "r2_search_files"].includes(fakeToolName)) {
               toolAgentId = Object.keys(agentResponses).find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? "zack";
             } else {
               const agentWithTool = Object.keys(agentResponses).find(id => {
@@ -899,11 +908,11 @@ async function followUpToolCall(
     toolToCall = "netlify_deploy";
     toolArgs = { repo: "ai-team-chat", message: agentResponse.slice(0, 100) };
   } else if (lowerUser.includes("review") || lowerUser.includes("bug") || lowerResponse.includes("review") || lowerResponse.includes("bug")) {
-    toolToCall = "code_review";
-    toolArgs = { repo: "ai-team-chat", focus: "all" };
+    toolToCall = "github_review";
+    toolArgs = { owner: "andyjxck", repo: "ai-team-chat", focus: "all" };
   } else if (lowerUser.includes("read") || lowerResponse.includes("reading") || lowerResponse.includes("read the")) {
-    toolToCall = "r2_list_files";
-    toolArgs = { repo: "ai-team-chat" };
+    toolToCall = "github_list_files";
+    toolArgs = { owner: "andyjxck", repo: "ai-team-chat" };
   } else if (lowerResponse.includes("draft") || lowerResponse.includes("email")) {
     toolToCall = "draft_action";
     toolArgs = { type: "email", context: userMessage, agentResponse };

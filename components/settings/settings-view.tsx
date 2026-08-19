@@ -6,7 +6,7 @@ import { ArrowLeft } from "lucide-react";
 import type { ClientAgent as Agent } from "@/db/client-types";
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/avatar";
-import { ReposView } from "@/components/repos/repos-view";
+import { GithubReposView } from "@/components/github/github-repos-view";
 
 type Tab = "integrations" | "repos" | "agents";
 
@@ -18,6 +18,9 @@ export function SettingsView({ agents }: { agents: Agent[] }) {
   const [savedMsg, setSavedMsg] = useState("");
   const [googleConnected, setGoogleConnected] = useState(false);
   const [checkingGoogle, setCheckingGoogle] = useState(true);
+  const [githubConnected, setGithubConnected] = useState(false);
+  const [githubUser, setGithubUser] = useState<string>("");
+  const [checkingGithub, setCheckingGithub] = useState(true);
 
   const agent = agents.find((a) => a.id === selectedAgent);
 
@@ -27,6 +30,14 @@ export function SettingsView({ agents }: { agents: Agent[] }) {
       .then((d) => setGoogleConnected(d.connected))
       .catch(() => setGoogleConnected(false))
       .finally(() => setCheckingGoogle(false));
+    fetch("/api/github/status")
+      .then((r) => r.json())
+      .then((d) => {
+        setGithubConnected(d.connected);
+        setGithubUser(d.username ?? "");
+      })
+      .catch(() => setGithubConnected(false))
+      .finally(() => setCheckingGithub(false));
   }, []);
 
   function selectAgent(a: Agent) {
@@ -119,16 +130,22 @@ export function SettingsView({ agents }: { agents: Agent[] }) {
             <div className="rounded-lg border border-border/50 p-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="text-lg">☁️</span>
+                  <span className="text-lg">🐙</span>
                   <div>
-                    <p className="text-sm font-medium">Cloudflare R2</p>
-                    <p className="text-xs text-muted-foreground">Repo storage</p>
+                    <p className="text-sm font-medium">GitHub</p>
+                    <p className="text-xs text-muted-foreground">Code repos for agents</p>
                   </div>
                 </div>
-                <span className="flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-500">
-                  <span className="h-2 w-2 rounded-full bg-green-500" />
-                  Connected
-                </span>
+                {checkingGithub ? (
+                  <span className="text-xs text-muted-foreground">...</span>
+                ) : githubConnected ? (
+                  <span className="flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-500">
+                    <span className="h-2 w-2 rounded-full bg-green-500" />
+                    {githubUser}
+                  </span>
+                ) : (
+                  <span className="text-xs text-muted-foreground">Not connected</span>
+                )}
               </div>
             </div>
           </div>
@@ -136,7 +153,7 @@ export function SettingsView({ agents }: { agents: Agent[] }) {
 
         {tab === "repos" && (
           <p className="px-2 py-2 text-xs text-muted-foreground">
-            Upload and manage your code repositories. Agents can read these to help with your projects.
+            Open a repo to let agents read, edit, and push code.
           </p>
         )}
 
@@ -202,22 +219,28 @@ export function SettingsView({ agents }: { agents: Agent[] }) {
             <div className="rounded-xl border border-border/50 p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <span className="text-2xl">☁️</span>
+                  <span className="text-2xl">🐙</span>
                   <div>
-                    <p className="font-medium">Cloudflare R2</p>
-                    <p className="text-xs text-muted-foreground">Store your code repos for agents to read</p>
+                    <p className="font-medium">GitHub</p>
+                    <p className="text-xs text-muted-foreground">Let agents read, edit, and push code to your repos</p>
                   </div>
                 </div>
-                <span className="flex items-center gap-1.5 text-sm font-medium text-green-600 dark:text-green-500">
-                  <span className="h-2 w-2 rounded-full bg-green-500" />
-                  Connected
-                </span>
+                {checkingGithub ? (
+                  <span className="text-xs text-muted-foreground">Checking...</span>
+                ) : githubConnected ? (
+                  <span className="flex items-center gap-1.5 text-sm font-medium text-green-600 dark:text-green-500">
+                    <span className="h-2 w-2 rounded-full bg-green-500" />
+                    {githubUser}
+                  </span>
+                ) : (
+                  <span className="text-sm text-muted-foreground">Not connected</span>
+                )}
               </div>
             </div>
           </div>
         )}
 
-        {tab === "repos" && <ReposView />}
+        {tab === "repos" && <GithubReposView />}
 
         {tab === "agents" && (
           <>

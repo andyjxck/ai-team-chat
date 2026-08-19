@@ -124,3 +124,13 @@ CREATE TABLE IF NOT EXISTS app_performance (
   notes TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- GitHub Repos (which repos the user has opened for agent access)
+CREATE TABLE IF NOT EXISTS github_repos (
+  user_id TEXT NOT NULL,
+  repo_id BIGINT NOT NULL,
+  repo_name TEXT NOT NULL,
+  owner TEXT NOT NULL,
+  opened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, repo_id)
+);

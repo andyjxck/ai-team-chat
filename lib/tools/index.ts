@@ -18,6 +18,15 @@ import { r2ListRepositories, r2ListFiles, r2ReadFile, r2UploadFile, r2SearchFile
 import { codeReview, codeEdit } from "./code-tools";
 import { netlifyDeploy, netlifyListDeploys } from "./netlify-deploy";
 import { proactiveMessage } from "./proactive-message";
+import {
+  githubListRepos,
+  githubListFiles,
+  githubReadFile,
+  githubEditFile,
+  githubDeleteFile,
+  githubGetCommits,
+  githubReview,
+} from "./github-tools";
 
 export const ALL_TOOLS = {
   serper_search: serperSearch,
@@ -49,6 +58,15 @@ export const ALL_TOOLS = {
   app_performance_report: appPerformanceReport,
   draft_action: draftAction,
   ask_question: askQuestion,
+  // GitHub tools (replace R2 for code editing)
+  github_list_repos: githubListRepos,
+  github_list_files: githubListFiles,
+  github_read_file: githubReadFile,
+  github_edit_file: githubEditFile,
+  github_delete_file: githubDeleteFile,
+  github_get_commits: githubGetCommits,
+  github_review: githubReview,
+  // Keep R2 tools for backward compat
   r2_list_repos: r2ListRepositories,
   r2_list_files: r2ListFiles,
   r2_read_file: r2ReadFile,

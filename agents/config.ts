@@ -17,6 +17,7 @@ export type AgentConfig = {
   model?: string;
   capabilities: string[];
   objective: string;
+  autonomyLevel: number; // 1-10
 };
 
 // Common GitHub tools for all agents
@@ -60,7 +61,8 @@ export const AGENT_CONFIGS: AgentConfig[] = [
       ...GITHUB_TOOLS,
     ],
     capabilities: ["social-strategy", "trend-analysis"],
-    objective: "Increase brand engagement"
+    objective: "Increase brand engagement",
+    autonomyLevel: 8
   },
   {
     id: "leo",
@@ -80,7 +82,8 @@ export const AGENT_CONFIGS: AgentConfig[] = [
       ...GITHUB_TOOLS,
     ],
     capabilities: ["market-scanning", "revenue-modeling"],
-    objective: "Identify high-value leads"
+    objective: "Identify high-value leads",
+    autonomyLevel: 8
   },
   {
     id: "sally",
@@ -98,7 +101,8 @@ export const AGENT_CONFIGS: AgentConfig[] = [
       "draft_action",
     ],
     capabilities: ["seo-optimization", "technical-web-audit"],
-    objective: "Maximise organic traffic"
+    objective: "Maximise organic traffic",
+    autonomyLevel: 8
   },
   {
     id: "evie",
@@ -130,7 +134,8 @@ export const AGENT_CONFIGS: AgentConfig[] = [
       "draft_action",
     ],
     capabilities: ["coordination", "system-governance"],
-    objective: "Maintain team efficiency"
+    objective: "Maintain team efficiency",
+    autonomyLevel: 9
   },
   {
     id: "lex",
@@ -148,7 +153,8 @@ export const AGENT_CONFIGS: AgentConfig[] = [
       "draft_action",
     ],
     capabilities: ["privacy-compliance", "contract-drafting"],
-    objective: "Ensure legal compliance"
+    objective: "Ensure legal compliance",
+    autonomyLevel: 9
   },
   {
     id: "zack",
@@ -167,7 +173,8 @@ export const AGENT_CONFIGS: AgentConfig[] = [
       "draft_action",
     ],
     capabilities: ["code-review", "deployment-management"],
-    objective: "Ship clean, robust code"
+    objective: "Ship clean, robust code",
+    autonomyLevel: 10
   },
   {
     id: "kevin",
@@ -185,7 +192,8 @@ export const AGENT_CONFIGS: AgentConfig[] = [
       "draft_action",
     ],
     capabilities: ["architecture-design", "refactoring"],
-    objective: "System scalability"
+    objective: "System scalability",
+    autonomyLevel: 9
   },
   {
     id: "beepbop",
@@ -203,7 +211,8 @@ export const AGENT_CONFIGS: AgentConfig[] = [
       "draft_action",
     ],
     capabilities: ["ui-development", "interactive-design"],
-    objective: "Enhance user experience"
+    objective: "Enhance user experience",
+    autonomyLevel: 9
   },
 ];
 

@@ -490,7 +490,7 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
       ],
       tools: hasTools ? groupTools : undefined,
       stopWhen: isStepCount(hasTools ? 50 : 1),
-      maxOutputTokens: hasTools ? 12000 : undefined,
+      maxOutputTokens: hasTools ? 24000 : undefined,
     });
 
     // ─── Parse the stream for [agent_id] markers ───
@@ -540,7 +540,7 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
         let toolAgentId = currentAgentId ?? orderedIds[0] ?? "system";
         // If no agent is currently speaking, try to infer from tool type
         if (!currentAgentId) {
-          const codeTools = ["github_edit_file", "github_read_file", "github_list_files", "github_list_repos", "github_delete_file", "github_get_commits", "github_review", "netlify_deploy", "netlify_list_deploys"];
+          const codeTools = ["github_edit_file", "github_read_file", "github_list_files", "github_list_repos", "github_delete_file", "github_get_commits", "github_review", "github_create_branch", "github_create_pr", "github_create_issue", "github_search_code", "github_list_branches", "netlify_deploy", "netlify_list_deploys"];
           if (codeTools.includes(toolName)) {
             toolAgentId = Object.keys(agentResponses).find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? orderedIds.find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? "zack";
           } else {
@@ -559,7 +559,7 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
         const output = (part as { output: unknown }).output;
         let toolAgentId = currentAgentId ?? orderedIds[0] ?? "system";
         if (!currentAgentId) {
-          const codeTools = ["github_edit_file", "github_read_file", "github_list_files", "github_list_repos", "github_delete_file", "github_get_commits", "github_review", "netlify_deploy", "netlify_list_deploys"];
+          const codeTools = ["github_edit_file", "github_read_file", "github_list_files", "github_list_repos", "github_delete_file", "github_get_commits", "github_review", "github_create_branch", "github_create_pr", "github_create_issue", "github_search_code", "github_list_branches", "netlify_deploy", "netlify_list_deploys"];
           if (codeTools.includes(toolName)) {
             toolAgentId = Object.keys(agentResponses).find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? orderedIds.find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? "zack";
           } else {
@@ -681,10 +681,19 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
       await finalizeAgent(currentAgentId, currentAgentText, chatId, sendEvent, agentResponses);
     }
 
-    // If no agents responded at all, try a fallback model
+    // If no agents responded with markers, try a fallback
     if (!fullText.match(/\[\w+\]/) || !orderedIds.some((id) => fullText.includes(`[${id}]`))) {
-      // Advance the fallback chain and try again
-      advanceFallbackModel();
+      // Check if tool calls actually happened — if so, the model worked but just didn't format text
+      let toolCallsHappened = false;
+      try {
+        const firstToolCalls = await result.toolCalls;
+        toolCallsHappened = !!(firstToolCalls && firstToolCalls.length > 0);
+      } catch { /* ignore */ }
+
+      // If tool calls happened, DON'T advance the fallback model — the model worked, it just didn't produce text markers
+      if (!toolCallsHappened) {
+        advanceFallbackModel();
+      }
 
       try {
         const fallbackModel = getModel();
@@ -694,7 +703,7 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
           const firstToolCalls = await result.toolCalls;
           if (firstToolCalls && firstToolCalls.length > 0) {
             toolCallSummary = "\n\n[Tool calls already completed:\n" + firstToolCalls.map((tc: { toolName: string; input: unknown }) =>
-              `- ${tc.toolName}(${JSON.stringify(tc.input).slice(0, 200)})`
+              `- ${tc.toolName}(${JSON.stringify(tc.input).slice(0, 300)})`
             ).join("\n") + "\n]";
           }
         } catch { /* ignore */ }
@@ -713,7 +722,7 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
           ],
           // No tools in retry — just generate text
           stopWhen: isStepCount(1),
-          maxOutputTokens: isCodingTeam || isAllTeam ? 6000 : undefined,
+          maxOutputTokens: isCodingTeam || isAllTeam ? 8000 : undefined,
         });
 
         let retryText = "";
@@ -796,7 +805,7 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
         // Attribute tool calls to the agent that most likely made them
         let toolAgentId = inScopeAgentIds[0] ?? "system";
         // Code tools go to whichever coder responded
-        if (["github_edit_file", "github_review", "github_read_file", "github_list_files", "github_list_repos", "github_delete_file", "github_get_commits", "netlify_deploy", "netlify_list_deploys"].includes(toolName)) {
+        if (["github_edit_file", "github_review", "github_read_file", "github_list_files", "github_list_repos", "github_delete_file", "github_get_commits", "github_create_branch", "github_create_pr", "github_create_issue", "github_search_code", "github_list_branches", "netlify_deploy", "netlify_list_deploys"].includes(toolName)) {
           toolAgentId = Object.keys(agentResponses).find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? inScopeAgentIds.find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? "zack";
         }
         // Other tools go to whichever agent responded that has that tool

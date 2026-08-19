@@ -23,3 +23,14 @@ export function formatTime(timestamp: number): string {
     minute: "2-digit",
   });
 }
+
+/**
+ * Self-Evolution Logic:
+ * This logger will eventually be hooked into our autonomous error correction loop.
+ * For now, it provides granular auditing of every team action.
+ */
+export function logSystemAction(agentId: string, action: string, metadata: any = {}) {
+  const timestamp = new Date().toISOString();
+  console.log(`[SYSTEM_EVOLUTION][${timestamp}][AGENT:${agentId.toUpperCase()}]: ${action}`, metadata);
+  // Future: This will push to a db log for the self-healing scripts to analyze.
+}

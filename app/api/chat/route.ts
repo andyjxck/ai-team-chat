@@ -266,6 +266,20 @@ async function handleGroup(
     `### ${c!.name} (id: ${c!.id})\nRole: ${c!.role}\nPersonality: ${c!.persona}`
   ).join("\n\n");
 
+  // Fetch opened repos so agents know what they can access
+  const isCodingTeam = chatId === "coding-team";
+  const isAllTeam = chatId === "all-team";
+  let openedReposList = "";
+  if (isCodingTeam || isAllTeam) {
+    const { data: openedRepos } = await supabase
+      .from("github_repos")
+      .select("owner, repo_name")
+      .order("opened_at", { ascending: false });
+    if (openedRepos && openedRepos.length > 0) {
+      openedReposList = openedRepos.map((r: any) => `- ${r.owner}/${r.repo_name}`).join("\n");
+    }
+  }
+
   const routingRule = isImplicitRouting
     ? `The user did not address anyone specifically. ONE agent should respond — the one whose role is MOST relevant to the message.
 
@@ -284,9 +298,6 @@ CRITICAL RULES:
   const replyContext = replyToAgentId
     ? `\n\nIMPORTANT: The user is replying to ${getAgentConfig(replyToAgentId)?.name ?? "someone"}. That agent should respond FIRST.`
     : "";
-
-  const isCodingTeam = chatId === "coding-team";
-  const isAllTeam = chatId === "all-team";
 
   const systemPrompt = `You are a team of AI assistants in a group chat. You will respond as multiple agents in a single response.
 
@@ -344,6 +355,12 @@ If the user says "continue", "keep going", "go on", or similar, they want you to
 ${isCodingTeam || isAllTeam ? `## Code Repositories — YOUR WORKSPACE
 You have access to GitHub tools to read AND edit code. These are REAL tools that make REAL changes. Use them.
 
+### Opened Repositories
+${openedReposList ? `The user has opened these repos for you to access:
+${openedReposList}
+
+Use the owner and repo name from this list for all GitHub tool calls. ONLY access repos from this list. If the user asks about a repo that isn't listed, tell them to open it first on the Repos page.` : `The user has not opened any repositories yet. If they ask you to read or edit code, tell them to go to the Repos page and open the repository first.`}
+
 ### Available Tools
 - github_list_repos: List all repos the user has opened
 - github_list_files: List files in a repo (owner, repo, path)
@@ -379,6 +396,7 @@ You have up to 50 steps. Be efficient — do multiple tool calls per step. But A
 - **ALWAYS** report what you DID, not what you WOULD do. "I edited 3 files and deployed" not "I recommend editing 3 files."
 - Edits are AUTO-APPROVED. Just make them. Old versions are saved for rollback if needed.
 - Only deploy when the user explicitly asks you to deploy, OR when you have completed a coding task and the changes are ready to go live.
+- ONLY access repos from the opened list. If a repo isn't opened, tell the user to open it first.
 
 ### TOOL USAGE — READ THIS CAREFULLY
 You have REAL tools available. They are not text commands. They are function calls that the system executes for you.
@@ -397,19 +415,14 @@ DO NOT write these as text in your response. The system will call them for you. 
 
 ### Self-Maintenance
 When the user says "maintain yourselves", "fix bugs", "improve the code", or anything similar:
-1. List the repos and find the ai-team-chat repo
-2. Run github_review on it
+1. Call github_list_repos to see what's available
+2. Run github_review on the repo
 3. Read the files that have issues
 4. Fix them with github_edit_file (this creates a real Git commit and pushes to GitHub)
 5. Check deploy status with netlify_deploy (the site auto-builds on push)
 6. Report what you fixed
 
-The GitHub owner is "andyjxck" and the repo is "ai-team-chat". Use owner="andyjxck" and repo="ai-team-chat" for all GitHub tool calls.
-
-DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, fix, deploy, report. That's the job.
-
-### Working on Yourself
-The ai-team-chat repo IS your own code. You can read it, find bugs, fix them, and deploy. You are self-maintaining. When asked to improve yourselves, treat it like any codebase — explore, diagnose, fix, deploy.` : ""}`;
+DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, fix, deploy, report. That's the job.` : ""}`;
 
   // Build history
   const historyMessages: ModelMessage[] = recentMessages.map((m) => {

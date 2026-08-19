@@ -3,18 +3,23 @@ import { z } from "zod";
 import { listRepoFiles, readFile, createOrUpdateFile, getCommits, getGithubToken } from "@/lib/github/client";
 import { supabase } from "@/db/client";
 
-// Get opened repos for the user
+// Get opened repos for the user — NO hardcoded fallback
 async function getOpenedRepos(): Promise<{ owner: string; name: string }[]> {
   const { data, error } = await supabase
     .from("github_repos")
     .select("owner, repo_name");
 
-  if (error || !data) {
-    // Fallback: if table doesn't exist, return the main repo
-    return [{ owner: "andyjxck", name: "ai-team-chat" }];
+  if (error || !data || data.length === 0) {
+    return [];
   }
 
   return (data as any[]).map((r) => ({ owner: r.owner, name: r.repo_name }));
+}
+
+// Check if a repo is opened — agents can only access opened repos
+async function isRepoOpened(owner: string, repo: string): Promise<boolean> {
+  const opened = await getOpenedRepos();
+  return opened.some((r) => r.owner === owner && r.name === repo);
 }
 
 export const githubListRepos = tool({
@@ -23,6 +28,9 @@ export const githubListRepos = tool({
   execute: async () => {
     try {
       const repos = await getOpenedRepos();
+      if (repos.length === 0) {
+        return { repos: [], count: 0, error: "No repos opened. Tell the user to open repos on the Repos page first." };
+      }
       return { repos, count: repos.length };
     } catch (err) {
       return { error: err instanceof Error ? err.message : "Failed to list repos" };
@@ -31,7 +39,7 @@ export const githubListRepos = tool({
 });
 
 export const githubListFiles = tool({
-  description: "List files and directories in a GitHub repository. Use this to explore the repo structure.",
+  description: "List files and directories in a GitHub repository. Use this to explore the repo structure. Only works on repos the user has opened.",
   inputSchema: z.object({
     owner: z.string().describe("Repo owner (username)"),
     repo: z.string().describe("Repository name"),
@@ -39,6 +47,9 @@ export const githubListFiles = tool({
   }),
   execute: async ({ owner, repo, path }) => {
     try {
+      if (!(await isRepoOpened(owner, repo))) {
+        return { error: `Repo ${owner}/${repo} is not opened. Tell the user to open it on the Repos page first.` };
+      }
       const files = await listRepoFiles(owner, repo, path ?? "");
       return { files, count: files.length };
     } catch (err) {
@@ -48,7 +59,7 @@ export const githubListFiles = tool({
 });
 
 export const githubReadFile = tool({
-  description: "Read the contents of a file from a GitHub repository. ALWAYS read a file before editing it.",
+  description: "Read the contents of a file from a GitHub repository. ALWAYS read a file before editing it. Only works on repos the user has opened.",
   inputSchema: z.object({
     owner: z.string().describe("Repo owner (username)"),
     repo: z.string().describe("Repository name"),
@@ -56,6 +67,9 @@ export const githubReadFile = tool({
   }),
   execute: async ({ owner, repo, path }) => {
     try {
+      if (!(await isRepoOpened(owner, repo))) {
+        return { error: `Repo ${owner}/${repo} is not opened. Tell the user to open it on the Repos page first.` };
+      }
       const content = await readFile(owner, repo, path);
       return { path, content, size: content.length };
     } catch (err) {
@@ -65,7 +79,7 @@ export const githubReadFile = tool({
 });
 
 export const githubEditFile = tool({
-  description: "Edit or create a file in a GitHub repository. This creates a REAL commit and pushes it. Netlify will auto-build if connected. ALWAYS read the file first before editing.",
+  description: "Edit or create a file in a GitHub repository. This creates a REAL commit and pushes it. Netlify will auto-build if connected. ALWAYS read the file first before editing. Only works on repos the user has opened.",
   inputSchema: z.object({
     owner: z.string().describe("Repo owner (username)"),
     repo: z.string().describe("Repository name"),
@@ -75,6 +89,9 @@ export const githubEditFile = tool({
   }),
   execute: async ({ owner, repo, path, content, message }) => {
     try {
+      if (!(await isRepoOpened(owner, repo))) {
+        return { error: `Repo ${owner}/${repo} is not opened. Tell the user to open it on the Repos page first.` };
+      }
       const result = await createOrUpdateFile(
         owner,
         repo,
@@ -96,7 +113,7 @@ export const githubEditFile = tool({
 });
 
 export const githubDeleteFile = tool({
-  description: "Delete a file from a GitHub repository. This creates a real commit.",
+  description: "Delete a file from a GitHub repository. This creates a real commit. Only works on repos the user has opened.",
   inputSchema: z.object({
     owner: z.string().describe("Repo owner (username)"),
     repo: z.string().describe("Repository name"),
@@ -105,6 +122,9 @@ export const githubDeleteFile = tool({
   }),
   execute: async ({ owner, repo, path, message }) => {
     try {
+      if (!(await isRepoOpened(owner, repo))) {
+        return { error: `Repo ${owner}/${repo} is not opened. Tell the user to open it on the Repos page first.` };
+      }
       const { deleteFile } = await import("@/lib/github/client");
       await deleteFile(owner, repo, path, message ?? `Delete ${path}`);
       return { success: true, path, message: `Deleted ${path} from ${owner}/${repo}` };
@@ -115,7 +135,7 @@ export const githubDeleteFile = tool({
 });
 
 export const githubGetCommits = tool({
-  description: "List recent commits in a GitHub repository. Use this to see what changed recently.",
+  description: "List recent commits in a GitHub repository. Use this to see what changed recently. Only works on repos the user has opened.",
   inputSchema: z.object({
     owner: z.string().describe("Repo owner (username)"),
     repo: z.string().describe("Repository name"),
@@ -123,6 +143,9 @@ export const githubGetCommits = tool({
   }),
   execute: async ({ owner, repo, perPage }) => {
     try {
+      if (!(await isRepoOpened(owner, repo))) {
+        return { error: `Repo ${owner}/${repo} is not opened. Tell the user to open it on the Repos page first.` };
+      }
       const commits = await getCommits(owner, repo, perPage ?? 10);
       return {
         commits: (commits as any[]).map((c) => ({
@@ -140,7 +163,7 @@ export const githubGetCommits = tool({
 });
 
 export const githubReview = tool({
-  description: "Review code in a GitHub repository. Lists files and reads key source files to find bugs, issues, or improvements.",
+  description: "Review code in a GitHub repository. Lists files and reads key source files to find bugs, issues, or improvements. Only works on repos the user has opened.",
   inputSchema: z.object({
     owner: z.string().describe("Repo owner (username)"),
     repo: z.string().describe("Repository name"),
@@ -148,6 +171,9 @@ export const githubReview = tool({
   }),
   execute: async ({ owner, repo, focus }) => {
     try {
+      if (!(await isRepoOpened(owner, repo))) {
+        return { error: `Repo ${owner}/${repo} is not opened. Tell the user to open it on the Repos page first.` };
+      }
       // List root files
       const rootFiles = await listRepoFiles(owner, repo, "");
       const sourceFiles = rootFiles.filter((f) =>

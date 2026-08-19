@@ -532,10 +532,23 @@ The ai-team-chat repo IS your own code. You can read it, find bugs, fix them, an
             const idx = buffer.indexOf(match[0]);
             buffer = buffer.slice(idx + match[0].length);
           } else {
-            // No marker found — if buffer is long enough, use first agent as fallback
-            if (buffer.length > 50 && !fallbackAgentUsed && orderedIds[0]) {
+            // No marker found — if buffer is long enough, try to detect agent by name
+            if (buffer.length > 50 && !fallbackAgentUsed) {
+              // Check if the text starts with an agent name like "Zack:" or "Maya:"
+              const nameMatch = buffer.match(/^(?:\*?\*?)?(Zack|Maya|Leo|Sally|Evie|Lex|Kevin|Beepbop)\s*[:\-]/i);
+              if (nameMatch) {
+                const detectedId = nameMatch[1].toLowerCase();
+                if (knownAgentIds.has(detectedId)) {
+                  // Strip the name prefix from the buffer
+                  buffer = buffer.slice(nameMatch[0].length).replace(/^\s+/, "");
+                  currentAgentId = detectedId;
+                } else {
+                  currentAgentId = orderedIds[0];
+                }
+              } else {
+                currentAgentId = orderedIds[0];
+              }
               fallbackAgentUsed = true;
-              currentAgentId = orderedIds[0];
               currentAgentText = "";
               const startDelay = agentIndex === 0 ? 400 : 800 + Math.random() * 600;
               await sleep(startDelay);

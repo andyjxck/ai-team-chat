@@ -350,7 +350,7 @@ You are autonomous coders. You DO things. You don't suggest things. You don't gi
 
 When the user gives you a task, here's what you do:
 1. **STEP 1**: Call github_list_files AND github_read_file in PARALLEL to read the files you need. Also call github_review if needed. Do ALL reads in ONE step.
-2. **STEP 2**: Call github_edit_file to fix the files AND netlify_deploy to deploy. Do BOTH in ONE step.
+2. **STEP 2**: Call github_edit_file to fix the files. ONLY call netlify_deploy if you actually made edits. If you didn't edit anything, DO NOT deploy.
 3. **STEP 3**: Report what you did.
 
 You have 6 steps. Be efficient — do multiple tool calls per step. But ALWAYS produce a text response with [agent_id] markers as your FINAL step. If you only do tool calls and no text, the user won't see anything.
@@ -362,6 +362,7 @@ You have 6 steps. Be efficient — do multiple tool calls per step. But ALWAYS p
 - **NEVER** give a list of "improvement ideas" — make the improvements.
 - **NEVER** ask "should I make this change?" — just make it. Edits are auto-approved.
 - **NEVER** add dependencies to package.json. You CANNOT update pnpm-lock.yaml (you can't run pnpm install). Use ONLY the packages that are already installed. If you need state management, use React's built-in useState/useReducer/Context — NOT zustand or other external libraries.
+- **NEVER** call netlify_deploy unless you actually made file edits in this conversation. If you only read files or answered a question, DO NOT deploy. Deploying with 0 files is useless and wastes time. Only deploy AFTER you have successfully called github_edit_file.
 - **NEVER EVER** write fake tool calls as text. Do NOT write @@action:github_edit_file(...) or /github_edit_file(...) or :github_edit_file(...) or anything that looks like a tool call in your text output. USE THE ACTUAL TOOL. Writing tool names as text does NOTHING.
 - **ALWAYS** read files before editing them. You need to see the actual code.
 - **ALWAYS** talk to each other while working. "I'm reading the auth file now" — "I found the bug" — "On it, fixing it now."
@@ -966,7 +967,8 @@ async function followUpToolCall(
   let toolToCall: string | null = null;
   let toolArgs: Record<string, unknown> = {};
 
-  if (lowerUser.includes("deploy") || lowerResponse.includes("deploy")) {
+  // Only auto-trigger deploy if the USER explicitly asked for it
+  if (lowerUser.includes("deploy") && (lowerUser.includes("please") || lowerUser.includes("can you") || lowerUser.includes("do a") || lowerUser.includes("do it") || lowerUser.includes("now"))) {
     toolToCall = "netlify_deploy";
     toolArgs = { repo: "ai-team-chat", message: agentResponse.slice(0, 100) };
   } else if (lowerUser.includes("review") || lowerUser.includes("bug") || lowerResponse.includes("review") || lowerResponse.includes("bug")) {

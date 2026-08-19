@@ -345,15 +345,20 @@ Rules:
 - Be casual, not corporate
 - If using tools, STILL produce a text response with [agent_id] markers after${replyContext}
 
-## Routing
+## Routing — WHO RESPONDS
 ${routingRule}
+
+### CRITICAL: STAY IN YOUR LANE
+- **Coding tasks** (code, bugs, refactoring, deployment, architecture): ONLY Zack, Kevin, or Beepbop respond. Non-coders (Maya, Leo, Sally, Evie, Lex) MUST NOT respond to coding tasks. They have NO coding tools and CANNOT edit code. If a non-coder wants to suggest something, they can mention it briefly, but they should NOT pretend they're doing coding work.
+- **Non-coding tasks** (social media, leads, SEO, legal, scheduling): The relevant specialist responds. Coders stay silent unless there's a technical concern.
+- **General chat**: One agent responds. Keep it brief.
+- If you're NOT the right agent for this task, DO NOT RESPOND. Silence is better than noise.
+- DO NOT say "I've noted this" or "I'll track this" or "I'll provide a briefing later" — that's useless. Either DO something or stay silent.
 
 ## Team Dynamics
 - ONE agent responds per message. Others ONLY join if they disagree or have something substantial to add.
-- Agents can talk to each other, but only when there's a real reason — a disagreement, a missing perspective, a correction.
 - DO NOT respond just to agree, praise, or repeat what someone else said. If you agree, stay silent.
-- If an agent disagrees with another agent, they should say so respectfully.
-- When one agent is doing a tool call (like github_edit_file or github_read_file), the OTHER agents should NOT comment unless they have a real concern. Don't say "looks good" or "nice work" — that's noise.
+- When a coder is doing tool calls (github_edit_file, github_read_file, etc.), NON-CODERS MUST NOT COMMENT. Don't say "looks good" or "nice work" or "I've noted these improvements." That's noise. Let the coders work.
 - Each agent should always introduce their perspective with their [agent_id] marker.
 
 ## History Context
@@ -387,28 +392,30 @@ Use the owner and repo name from this list for all GitHub tool calls. ONLY acces
 - netlify_deploy: Check deploy status (deploys happen automatically on git push)
 - netlify_list_deploys: List recent deploys
 
-### How You Work — BE LIKE DEVIN
+### How You Work — ACTION NOT WORDS
 You are autonomous coders. You DO things. You don't suggest things. You don't give "refactoring ideas." You READ the code, FIND the problem, FIX it, and DEPLOY it.
 
 When the user gives you a task, here's what you do:
-1. **STEP 1**: Call github_list_files AND github_read_file in PARALLEL to read the files you need. Also call github_review if needed. Do ALL reads in ONE step.
-2. **STEP 2**: Call github_edit_file to fix the files. ONLY call netlify_deploy if you actually made edits. If you didn't edit anything, DO NOT deploy.
-3. **STEP 3**: Report what you did.
+1. **STEP 1**: Call github_list_files AND github_read_file in PARALLEL to read the files you need. Do ALL reads in ONE step. Do NOT produce text yet — just read.
+2. **STEP 2**: Call github_edit_file to fix the files. Make ALL edits. Do NOT produce text yet — just edit.
+3. **STEP 3**: NOW produce your text response with [agent_id] markers. Report what you DID. "I edited X, Y, Z. Here's what I changed and why."
 
-You have up to 50 steps. Be efficient — do multiple tool calls per step. But ALWAYS produce a text response with [agent_id] markers as your FINAL step. If you only do tool calls and no text, the user won't see anything.
+DO NOT say "I'm going to refactor X" and then stop. DO NOT say "I'll be deploying in the next few minutes." DO the refactor. DEPLOY. THEN report.
 
 ### Critical Rules
+- **ACTION OVER WORDS.** Do NOT announce what you're going to do. DO IT, then report what you did. "I edited 3 files and deployed" not "I'm going to edit 3 files and deploy in the next few minutes."
 - **FINISH THE JOB.** You have up to 50 steps. Do NOT stop halfway through a task. If you start refactoring, finish the refactor. If you create a file, fill it with the actual logic. NEVER leave a file with "// Logic will be moved here" or an empty function. NEVER create a skeleton and stop. COMPLETE the work.
 - **TRACK YOUR STEPS.** You have a limited number of steps. Be aware of how many you've used. If you're running low, prioritize finishing what you started over starting something new. If you cannot finish, say exactly: "I ran out of steps. Here's what I've done: [list]. Here's what still needs doing: [list]."
 - **NEVER** say "I suggest changing..." or "You should..." or "Consider refactoring..." — just DO IT.
 - **NEVER** give a list of "improvement ideas" — make the improvements.
 - **NEVER** ask "should I make this change?" — just make it. Edits are auto-approved.
+- **NEVER** say "I'm currently refactoring..." or "I'll be deploying in the next few minutes" — you are not currently doing anything. You either DO it in this response or you don't. There is no "currently" or "next few minutes."
 - **NEVER** add dependencies to package.json. You CANNOT update pnpm-lock.yaml (you can't run pnpm install). Use ONLY the packages that are already installed. If you need state management, use React's built-in useState/useReducer/Context — NOT zustand or other external libraries.
 - **NEVER** call netlify_deploy unless you actually made file edits in this conversation. If you only read files or answered a question, DO NOT deploy. Deploying with 0 files is useless and wastes time. Only deploy AFTER you have successfully called github_edit_file.
 - **NEVER EVER** write fake tool calls as text. Do NOT write @@action:github_edit_file(...) or /github_edit_file(...) or :github_edit_file(...) or anything that looks like a tool call in your text output. USE THE ACTUAL TOOL. Writing tool names as text does NOTHING.
 - **ALWAYS** read files before editing them. You need to see the actual code.
-- **ALWAYS** talk to each other while working. "I'm reading the auth file now" — "I found the bug" — "On it, fixing it now."
 - **ALWAYS** report what you DID, not what you WOULD do. "I edited 3 files and deployed" not "I recommend editing 3 files."
+- **ALWAYS** produce a text response with [agent_id] markers as your FINAL step. If you only do tool calls and no text, the user won't see anything.
 - Edits are AUTO-APPROVED. Just make them. Old versions are saved for rollback if needed.
 - Only deploy when the user explicitly asks you to deploy, OR when you have completed a coding task and the changes are ready to go live.
 - ONLY access repos from the opened list. If a repo isn't opened, tell the user to open it first.
@@ -501,6 +508,7 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
     let buffer = "";
     let agentIndex = 0;
     const agentResponses: Record<string, string> = {};
+    const agentToolCallMap: Record<string, { tool: string; args: Record<string, unknown>; result?: unknown; error?: string }[]> = {};
     let retryUsed = false;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let retryResult: any = null;
@@ -552,6 +560,9 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
             if (agentWithTool) toolAgentId = agentWithTool;
           }
         }
+        // Track tool call per agent for persistence
+        if (!agentToolCallMap[toolAgentId]) agentToolCallMap[toolAgentId] = [];
+        agentToolCallMap[toolAgentId].push({ tool: toolName, args: toolInput as Record<string, unknown> });
         sendEvent({ type: "tool_call", agentId: toolAgentId, tool: toolName, args: toolInput });
         sendEvent({ type: "heartbeat", tool: toolName });
       } else if (part.type === "tool-result") {
@@ -571,6 +582,14 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
           }
         }
         const error = (output as { error?: string })?.error;
+        // Update the tracked tool call with its result
+        if (agentToolCallMap[toolAgentId]) {
+          const pending = agentToolCallMap[toolAgentId].find(tc => tc.tool === toolName && tc.result === undefined);
+          if (pending) {
+            pending.result = output;
+            pending.error = error;
+          }
+        }
         sendEvent({ type: "tool_result", agentId: toolAgentId, tool: toolName, result: output, error });
         sendEvent({ type: "heartbeat", tool: toolName, result: "done" });
       }
@@ -649,7 +668,7 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
               }
             }
 
-            await finalizeAgent(currentAgentId, currentAgentText, chatId, sendEvent, agentResponses);
+            await finalizeAgent(currentAgentId, currentAgentText, chatId, sendEvent, agentResponses, agentToolCallMap[currentAgentId]);
             currentAgentId = null;
             currentAgentText = "";
             // Don't slice buffer — the [agent_id] is still there for the next iteration
@@ -678,7 +697,7 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
         currentAgentText += cleaned;
         sendEvent({ type: "token", agentId: currentAgentId, text: cleaned });
       }
-      await finalizeAgent(currentAgentId, currentAgentText, chatId, sendEvent, agentResponses);
+      await finalizeAgent(currentAgentId, currentAgentText, chatId, sendEvent, agentResponses, agentToolCallMap[currentAgentId]);
     }
 
     // If no agents responded with markers, try a fallback
@@ -752,7 +771,7 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
               if (retryAgentId && retryAgentText) {
                 sendEvent({ type: "agent_start", agentId: retryAgentId });
                 sendEvent({ type: "token", agentId: retryAgentId, text: retryAgentText });
-                await finalizeAgent(retryAgentId, retryAgentText, chatId, sendEvent, agentResponses);
+                await finalizeAgent(retryAgentId, retryAgentText, chatId, sendEvent, agentResponses, agentToolCallMap[retryAgentId]);
               }
               retryAgentId = match[1];
               retryAgentText = cleanMarkers(match[2]);
@@ -764,7 +783,7 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
           if (retryAgentId && retryAgentText) {
             sendEvent({ type: "agent_start", agentId: retryAgentId });
             sendEvent({ type: "token", agentId: retryAgentId, text: retryAgentText });
-            await finalizeAgent(retryAgentId, retryAgentText, chatId, sendEvent, agentResponses);
+            await finalizeAgent(retryAgentId, retryAgentText, chatId, sendEvent, agentResponses, agentToolCallMap[retryAgentId]);
           }
         } else {
           // No markers found — just send the text as the first expected agent
@@ -772,7 +791,7 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
           if (fallbackAgentId && retryText.trim()) {
             sendEvent({ type: "agent_start", agentId: fallbackAgentId });
             sendEvent({ type: "token", agentId: fallbackAgentId, text: retryText });
-            await finalizeAgent(fallbackAgentId, retryText, chatId, sendEvent, agentResponses);
+            await finalizeAgent(fallbackAgentId, retryText, chatId, sendEvent, agentResponses, agentToolCallMap[fallbackAgentId]);
           } else {
             sendEvent({
               type: "error",
@@ -848,6 +867,7 @@ async function finalizeAgent(
   chatId: string,
   sendEvent: (e: Record<string, unknown>) => void,
   agentResponses?: Record<string, string>,
+  agentToolCalls?: { tool: string; args: Record<string, unknown>; result?: unknown; error?: string }[],
 ) {
   // Final cleanup of any leaked markers
   const trimmed = text
@@ -877,7 +897,7 @@ async function finalizeAgent(
     sender_type: "agent",
     content: trimmed,
     mentions: [],
-    tool_calls: [],
+    tool_calls: agentToolCalls ?? [],
   });
 
   sendEvent({ type: "message_end", agentId, messageId: agentMessageId, content: trimmed });

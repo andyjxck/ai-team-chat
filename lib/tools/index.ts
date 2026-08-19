@@ -1,8 +1,6 @@
 import { serperSearch } from "./serper";
 import { webFetch } from "./web-fetch";
 import { memorySave, memoryLoad } from "./memory";
-import { fileRead, fileWrite, fileList } from "./files";
-import { codeExec } from "./code-exec";
 import { imageGen } from "./image-gen";
 import { leadsCreate, leadsUpdate, leadsList } from "./leads";
 import { contactsCreate, contactsSearch } from "./contacts";
@@ -24,6 +22,11 @@ import {
   githubDeleteFile,
   githubGetCommits,
   githubReview,
+  githubCreateBranch,
+  githubCreatePR,
+  githubCreateIssue,
+  githubSearchCode,
+  githubListBranches,
 } from "./github-tools";
 
 export const ALL_TOOLS = {
@@ -31,10 +34,6 @@ export const ALL_TOOLS = {
   web_fetch: webFetch,
   memory_save: memorySave,
   memory_load: memoryLoad,
-  file_read: fileRead,
-  file_write: fileWrite,
-  file_list: fileList,
-  code_exec: codeExec,
   image_gen: imageGen,
   leads_create: leadsCreate,
   leads_update: leadsUpdate,
@@ -63,6 +62,11 @@ export const ALL_TOOLS = {
   github_delete_file: githubDeleteFile,
   github_get_commits: githubGetCommits,
   github_review: githubReview,
+  github_create_branch: githubCreateBranch,
+  github_create_pr: githubCreatePR,
+  github_create_issue: githubCreateIssue,
+  github_search_code: githubSearchCode,
+  github_list_branches: githubListBranches,
   netlify_deploy: netlifyDeploy,
   netlify_list_deploys: netlifyListDeploys,
   proactive_message: proactiveMessage,

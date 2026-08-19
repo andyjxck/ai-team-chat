@@ -157,6 +157,57 @@ export async function getCommit(owner: string, repo: string, sha: string, token?
   return res.json();
 }
 
+export async function createBranch(owner: string, repo: string, branchName: string, fromBranch = "main", token?: string) {
+  // Get the SHA of the source branch
+  const refRes = await ghFetch(`/repos/${owner}/${repo}/git/refs/heads/${fromBranch}`, {}, token);
+  const refData = await refRes.json() as any;
+  const sha = refData.object.sha;
+
+  // Create the new branch ref
+  const res = await ghFetch(`/repos/${owner}/${repo}/git/refs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ref: `refs/heads/${branchName}`, sha }),
+  }, token);
+  return res.json();
+}
+
+export async function createPullRequest(
+  owner: string, repo: string,
+  title: string, head: string, base: string,
+  body?: string, token?: string,
+): Promise<{ number: number; html_url: string; state: string }> {
+  const res = await ghFetch(`/repos/${owner}/${repo}/pulls`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, head, base, body: body ?? "" }),
+  }, token);
+  return res.json();
+}
+
+export async function createIssue(
+  owner: string, repo: string,
+  title: string, body?: string, labels?: string[], token?: string,
+): Promise<{ number: number; html_url: string; state: string }> {
+  const res = await ghFetch(`/repos/${owner}/${repo}/issues`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, body: body ?? "", labels: labels ?? [] }),
+  }, token);
+  return res.json();
+}
+
+export async function searchCode(query: string, owner?: string, repo?: string, token?: string) {
+  const q = owner && repo ? `${query} repo:${owner}/${repo}` : query;
+  const res = await ghFetch(`/search/code?q=${encodeURIComponent(q)}&per_page=20`, {}, token);
+  return res.json();
+}
+
+export async function listBranches(owner: string, repo: string, token?: string) {
+  const res = await ghFetch(`/repos/${owner}/${repo}/branches?per_page=100`, {}, token);
+  return res.json();
+}
+
 export async function getUser(token?: string) {
   const res = await ghFetch("/user", {}, token);
   return res.json();

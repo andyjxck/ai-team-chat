@@ -31,7 +31,12 @@ const TOOL_ACTIVITIES: Record<string, (args: Record<string, unknown>) => string>
   github_delete_file: (a) => `deleting ${a.path ?? "a file"}`,
   github_review: () => "reviewing code",
   github_get_commits: () => "checking git history",
-  netlify_deploy: () => "deploying to Netlify",
+  github_create_branch: (a) => `creating branch ${a.branch ?? ""}`,
+  github_create_pr: (a) => `creating PR: ${a.title ?? ""}`,
+  github_create_issue: (a) => `creating issue: ${a.title ?? ""}`,
+  github_search_code: (a) => `searching code for "${a.query ?? ""}"`,
+  github_list_branches: () => "listing branches",
+  netlify_deploy: () => "checking deploy status",
   netlify_list_deploys: () => "checking deploy status",
   serper_search: (a) => `searching the web${a.query ? ` for "${String(a.query).slice(0, 40)}"` : ""}`,
   web_fetch: () => "fetching a web page",
@@ -45,11 +50,7 @@ const TOOL_ACTIVITIES: Record<string, (args: Record<string, unknown>) => string>
   memory_save: () => "saving to memory",
   memory_load: () => "loading memory",
   draft_action: () => "preparing a draft",
-  message_agent: (a) => `messaging ${a.targetAgent ?? "an agent"}`,
-  file_read: (a) => `reading ${a.path ?? "a file"}`,
-  file_write: (a) => `writing ${a.path ?? "a file"}`,
-  file_list: () => "listing files",
-  code_exec: () => "running code",
+  message_agent: (a) => `messaging ${a.agentId ?? "an agent"}`,
 };
 
 export function useChatManager(

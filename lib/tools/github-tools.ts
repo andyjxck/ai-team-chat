@@ -1,6 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { listRepoFiles, readFile, createOrUpdateFile, getCommits, getGithubToken } from "@/lib/github/client";
+import { listRepoFiles, readFile, createOrUpdateFile, getCommits, getGithubToken, createBranch, createPullRequest, createIssue, searchCode, listBranches } from "@/lib/github/client";
 import { supabase } from "@/db/client";
 
 // Get opened repos for the user — NO hardcoded fallback
@@ -198,6 +198,145 @@ export const githubReview = tool({
       };
     } catch (err) {
       return { error: err instanceof Error ? err.message : "Failed to review code" };
+    }
+  },
+});
+
+export const githubCreateBranch = tool({
+  description: "Create a new branch in a GitHub repository. Use this before making changes if you want to work on a branch instead of main. Only works on repos the user has opened.",
+  inputSchema: z.object({
+    owner: z.string().describe("Repo owner (username)"),
+    repo: z.string().describe("Repository name"),
+    branch: z.string().describe("New branch name (e.g. 'fix-auth-bug')"),
+    fromBranch: z.string().optional().describe("Source branch to branch from (default: main)"),
+  }),
+  execute: async ({ owner, repo, branch, fromBranch }) => {
+    try {
+      if (!(await isRepoOpened(owner, repo))) {
+        return { error: `Repo ${owner}/${repo} is not opened. Tell the user to open it on the Repos page first.` };
+      }
+      const result = await createBranch(owner, repo, branch, fromBranch ?? "main");
+      return {
+        success: true,
+        branch,
+        fromBranch: fromBranch ?? "main",
+        ref: result.ref,
+        message: `Created branch '${branch}' from '${fromBranch ?? "main"}' in ${owner}/${repo}`,
+      };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : "Failed to create branch" };
+    }
+  },
+});
+
+export const githubCreatePR = tool({
+  description: "Create a pull request in a GitHub repository. Use this after pushing changes to a branch to request merging into main. Only works on repos the user has opened.",
+  inputSchema: z.object({
+    owner: z.string().describe("Repo owner (username)"),
+    repo: z.string().describe("Repository name"),
+    title: z.string().describe("PR title"),
+    head: z.string().describe("The branch containing changes (source)"),
+    base: z.string().optional().describe("The branch to merge into (default: main)"),
+    body: z.string().optional().describe("PR description — what changed and why"),
+  }),
+  execute: async ({ owner, repo, title, head, base, body }) => {
+    try {
+      if (!(await isRepoOpened(owner, repo))) {
+        return { error: `Repo ${owner}/${repo} is not opened. Tell the user to open it on the Repos page first.` };
+      }
+      const result = await createPullRequest(owner, repo, title, head, base ?? "main", body);
+      return {
+        success: true,
+        number: result.number,
+        url: result.html_url,
+        state: result.state,
+        message: `Created PR #${result.number}: ${title} (${head} -> ${base ?? "main"}) in ${owner}/${repo}`,
+      };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : "Failed to create PR" };
+    }
+  },
+});
+
+export const githubCreateIssue = tool({
+  description: "Create an issue in a GitHub repository. Use this to track bugs, feature requests, or tasks. Only works on repos the user has opened.",
+  inputSchema: z.object({
+    owner: z.string().describe("Repo owner (username)"),
+    repo: z.string().describe("Repository name"),
+    title: z.string().describe("Issue title"),
+    body: z.string().optional().describe("Issue description — what's the problem or what's needed?"),
+    labels: z.array(z.string()).optional().describe("Labels to apply (e.g. ['bug', 'high-priority'])"),
+  }),
+  execute: async ({ owner, repo, title, body, labels }) => {
+    try {
+      if (!(await isRepoOpened(owner, repo))) {
+        return { error: `Repo ${owner}/${repo} is not opened. Tell the user to open it on the Repos page first.` };
+      }
+      const result = await createIssue(owner, repo, title, body, labels);
+      return {
+        success: true,
+        number: result.number,
+        url: result.html_url,
+        state: result.state,
+        message: `Created issue #${result.number}: ${title} in ${owner}/${repo}`,
+      };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : "Failed to create issue" };
+    }
+  },
+});
+
+export const githubSearchCode = tool({
+  description: "Search for code across a GitHub repository. Use this to find where a function, variable, or pattern is used. Only works on repos the user has opened.",
+  inputSchema: z.object({
+    owner: z.string().describe("Repo owner (username)"),
+    repo: z.string().describe("Repository name"),
+    query: z.string().describe("Search query (e.g. 'auth handler', 'function validateUser')"),
+  }),
+  execute: async ({ owner, repo, query }) => {
+    try {
+      if (!(await isRepoOpened(owner, repo))) {
+        return { error: `Repo ${owner}/${repo} is not opened. Tell the user to open it on the Repos page first.` };
+      }
+      const result = await searchCode(query, owner, repo);
+      const items = (result.items ?? []).slice(0, 20).map((item: any) => ({
+        file: item.path,
+        url: item.html_url,
+        score: item.score,
+      }));
+      return {
+        results: items,
+        count: items.length,
+        totalCount: result.total_count ?? 0,
+      };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : "Failed to search code" };
+    }
+  },
+});
+
+export const githubListBranches = tool({
+  description: "List all branches in a GitHub repository. Only works on repos the user has opened.",
+  inputSchema: z.object({
+    owner: z.string().describe("Repo owner (username)"),
+    repo: z.string().describe("Repository name"),
+  }),
+  execute: async ({ owner, repo }) => {
+    try {
+      if (!(await isRepoOpened(owner, repo))) {
+        return { error: `Repo ${owner}/${repo} is not opened. Tell the user to open it on the Repos page first.` };
+      }
+      const branches = await listBranches(owner, repo);
+      return {
+        branches: (branches as any[]).map((b) => ({
+          name: b.name,
+          protected: b.protected,
+          default: b.name === "main",
+        })),
+        count: branches.length,
+      };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : "Failed to list branches" };
     }
   },
 });

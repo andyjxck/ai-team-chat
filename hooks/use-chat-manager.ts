@@ -149,7 +149,6 @@ export function useChatManager(
                   toolCalls.push({
                     tool: event.tool,
                     args: event.args,
-                    status: "pending",
                   });
                   return { ...m, toolCalls };
                 });
@@ -158,7 +157,7 @@ export function useChatManager(
                 upsertStreamingMessage(event.agentId, (m) => {
                   const toolCalls = (m.toolCalls ?? []).map((tc, i) =>
                     i === (m.toolCalls ?? []).length - 1
-                      ? { ...tc, result: event.result, error: event.error, status: "done" as const }
+                      ? { ...tc, result: event.result, error: event.error }
                       : tc
                   );
                   return { ...m, toolCalls };

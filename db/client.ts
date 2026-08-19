@@ -1,23 +1,15 @@
-import dotenv from "dotenv";
-dotenv.config({ path: ".env.local" });
+import { createClient } from "@supabase/supabase-js";
 
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
-import * as schema from "./schema";
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_ANON_KEY;
 
-const databaseUrl = process.env.DATABASE_URL;
-
-if (!databaseUrl) {
-  throw new Error("DATABASE_URL is not set. Add your Supabase connection string to .env.local");
+if (!supabaseUrl || !supabaseKey) {
+  throw new Error("Supabase env vars not set. Need SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY)");
 }
 
-// For serverless (Netlify), use a single connection per request.
-// For dev, this works fine too.
-const client = postgres(databaseUrl, {
-  max: 5,
-  idle_timeout: 20,
-  connect_timeout: 10,
+export const supabase = createClient(supabaseUrl, supabaseKey, {
+  auth: { persistSession: false },
 });
 
-export const db = drizzle(client, { schema });
-export { schema };
+// Re-export schema types for convenience
+export * as schema from "./schema-types";

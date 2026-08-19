@@ -1,92 +1,103 @@
-import dotenv from "dotenv";
-dotenv.config({ path: ".env.local" });
+import { config } from "dotenv";
+config({ path: ".env.local" });
 
-import { db, schema } from "./client";
+import { createClient } from "@supabase/supabase-js";
 import { AGENT_CONFIGS } from "../agents/config";
 import { nanoid } from "nanoid";
-import { eq } from "drizzle-orm";
+
+const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error("Need SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY env vars");
+  process.exit(1);
+}
+
+const supabase = createClient(supabaseUrl, supabaseKey, { auth: { persistSession: false } });
 
 async function seed() {
   console.log("Seeding database...");
 
-  // ─── Seed agents ───
   for (const config of AGENT_CONFIGS) {
-    const existing = await db
-      .select()
-      .from(schema.agents)
-      .where(eq(schema.agents.id, config.id));
+    const { data: existing } = await supabase.from("agents").select("*").eq("id", config.id);
 
-    if (existing.length > 0) {
-      await db
-        .update(schema.agents)
-        .set({
-          name: config.name,
-          role: config.role,
-          avatar: config.avatar,
-          persona: config.persona,
-          tools: config.tools,
-          model: config.model ?? null,
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.agents.id, config.id));
+    if (existing && existing.length > 0) {
+      await supabase.from("agents").update({
+        name: config.name,
+        role: config.role,
+        avatar: config.avatar,
+        persona: config.persona,
+        tools: config.tools,
+        model: config.model ?? null,
+        updated_at: new Date().toISOString(),
+      }).eq("id", config.id);
       console.log(`  Updated agent: ${config.name}`);
     } else {
-      await db
-        .insert(schema.agents)
-        .values({
-          id: config.id,
-          name: config.name,
-          role: config.role,
-          avatar: config.avatar,
-          persona: config.persona,
-          tools: config.tools,
-          model: config.model ?? null,
-        });
+      await supabase.from("agents").insert({
+        id: config.id,
+        name: config.name,
+        role: config.role,
+        avatar: config.avatar,
+        persona: config.persona,
+        tools: config.tools,
+        model: config.model ?? null,
+      });
       console.log(`  Created agent: ${config.name}`);
     }
   }
 
-  // ─── Seed default chats if none exist ───
-  const existingChats = await db.select().from(schema.chats);
-  if (existingChats.length > 0) {
-    console.log("  Chats already exist, skipping chat seeding.");
+  const { data: existingChats } = await supabase.from("chats").select("*");
+  if (existingChats && existingChats.length > 0) {
+    console.log("  Chats already exist, skipping.");
     console.log("Done.");
     process.exit(0);
   }
 
-  // Create 7 DM chats (one per agent)
+  // Create DM chats for non-coding agents (coders share a group chat)
+  const nonCodingAgentIds = ["maya", "leo", "sally", "evie", "lex"];
   for (const config of AGENT_CONFIGS) {
+    if (!nonCodingAgentIds.includes(config.id)) continue;
     const chatId = `dm-${config.id}`;
-    await db.insert(schema.chats).values({
+    await supabase.from("chats").insert({
       id: chatId,
       name: config.name,
       type: "dm",
-      routingMode: "mentioned_only",
-      isDefault: true,
+      routing_mode: "mentioned_only",
+      is_default: true,
     });
-    await db.insert(schema.chatMembers).values({
-      chatId,
-      agentId: config.id,
-    });
+    await supabase.from("chat_members").insert({ chat_id: chatId, agent_id: config.id });
     console.log(`  Created DM chat: ${config.name}`);
   }
 
-  // Create "All Team" group chat
+  // Create coding team group chat (Zack, Kevin, Beepbop — no individual DMs)
+  const codingTeamId = "coding-team";
+  const codingAgentIds = ["zack", "kevin", "beepbop"];
+  await supabase.from("chats").insert({
+    id: codingTeamId,
+    name: "Coding Team",
+    type: "group",
+    routing_mode: "mentioned_only",
+    is_default: true,
+  });
+  for (const agentId of codingAgentIds) {
+    await supabase.from("chat_members").insert({ chat_id: codingTeamId, agent_id: agentId });
+  }
+  console.log('  Created group chat: "Coding Team" (Zack, Kevin, Beepbop)');
+
+  // All Team — only Zack from the coding team (he represents all 3)
   const allTeamId = "all-team";
-  await db.insert(schema.chats).values({
+  await supabase.from("chats").insert({
     id: allTeamId,
     name: "All Team",
     type: "group",
-    routingMode: "mentioned_only",
-    isDefault: true,
+    routing_mode: "mentioned_only",
+    is_default: true,
   });
-  for (const config of AGENT_CONFIGS) {
-    await db.insert(schema.chatMembers).values({
-      chatId: allTeamId,
-      agentId: config.id,
-    });
+  const allTeamAgentIds = ["maya", "leo", "sally", "evie", "lex", "zack"];
+  for (const agentId of allTeamAgentIds) {
+    await supabase.from("chat_members").insert({ chat_id: allTeamId, agent_id: agentId });
   }
-  console.log('  Created group chat: "All Team"');
+  console.log('  Created group chat: "All Team" (Maya, Leo, Sally, Evie, Lex, Zack)');
 
   console.log("Done.");
   process.exit(0);

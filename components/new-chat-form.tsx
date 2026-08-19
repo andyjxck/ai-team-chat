@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Agent } from "@/db/schema";
+import type { ClientAgent as Agent } from "@/db/client-types";
 import { cn } from "@/lib/utils";
 
 export function NewChatForm({ agents }: { agents: Agent[] }) {

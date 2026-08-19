@@ -11,3 +11,6 @@
 
 [functions]
   included_files = ["!node_modules/**/*"]
+
+# Scheduled function — proactive agent outreach 3x/day (9am, 1pm, 5pm)
+# The schedule is defined in the function file itself using @netlify/functions

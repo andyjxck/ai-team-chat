@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
-import { db, schema } from "@/db/client";
-import { eq, desc } from "drizzle-orm";
+import { supabase } from "@/db/client";
+import type { Message } from "@/db/schema-types";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
@@ -11,14 +11,24 @@ export async function GET(req: NextRequest) {
   const chatId = req.nextUrl.searchParams.get("chatId");
   if (!chatId) return new Response("Missing chatId", { status: 400 });
 
-  const msgs = await db
-    .select()
-    .from(schema.messages)
-    .where(eq(schema.messages.chatId, chatId))
-    .orderBy(desc(schema.messages.createdAt))
+  const { data } = await supabase
+    .from("messages")
+    .select("*")
+    .eq("chat_id", chatId)
+    .order("created_at", { ascending: false })
     .limit(100);
 
-  msgs.reverse();
+  const msgs = ((data ?? []) as Message[]).reverse().map((m) => ({
+    id: m.id,
+    chatId: m.chat_id,
+    senderId: m.sender_id,
+    senderType: m.sender_type,
+    content: m.content,
+    mentions: m.mentions ?? [],
+    parentMessageId: m.parent_message_id,
+    toolCalls: m.tool_calls ?? [],
+    createdAt: m.created_at,
+  }));
 
   return Response.json(msgs);
 }

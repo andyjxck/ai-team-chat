@@ -22,7 +22,7 @@ async function netlifyFetch(path: string, options: RequestInit = {}) {
 }
 
 export const netlifyDeploy = tool({
-  description: "Check the deploy status of the ai-team-chat Netlify site. Since the site is connected to GitHub, every git push auto-deploys. Use this to check if the latest deploy succeeded.",
+  description: "CHECK the deploy status of the ai-team-chat Netlify site. This does NOT deploy anything — it only checks if the latest deploy succeeded. Deploys happen AUTOMATICALLY when you call github_edit_file (which pushes to GitHub). Only use this tool to CHECK status, not to deploy.",
   inputSchema: z.object({
     repo: z.string().describe("Repository name (for compatibility)"),
     message: z.string().optional().describe("Deploy message (ignored — deploys happen via Git push)"),

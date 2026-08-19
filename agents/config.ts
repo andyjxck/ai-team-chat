@@ -36,7 +36,6 @@ const CODING_TOOLS = [
   "github_create_issue",
   "github_search_code",
   "github_list_branches",
-  "netlify_deploy",
   "netlify_list_deploys",
 ];
 

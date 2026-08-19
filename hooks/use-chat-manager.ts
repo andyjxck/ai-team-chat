@@ -36,7 +36,6 @@ const TOOL_ACTIVITIES: Record<string, (args: Record<string, unknown>) => string>
   github_create_issue: (a) => `creating issue: ${a.title ?? ""}`,
   github_search_code: (a) => `searching code for "${a.query ?? ""}"`,
   github_list_branches: () => "listing branches",
-  netlify_deploy: () => "checking deploy status",
   netlify_list_deploys: () => "checking deploy status",
   serper_search: (a) => `searching the web${a.query ? ` for "${String(a.query).slice(0, 40)}"` : ""}`,
   web_fetch: () => "fetching a web page",

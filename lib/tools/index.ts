@@ -12,7 +12,7 @@ import { messageAgent } from "./message-agent";
 import { appPerformanceLog, appPerformanceReport } from "./app-performance";
 import { draftAction } from "./draft";
 import { askQuestion } from "./ask-question";
-import { netlifyDeploy, netlifyListDeploys } from "./netlify-deploy";
+import { netlifyListDeploys } from "./netlify-deploy";
 import { proactiveMessage } from "./proactive-message";
 import {
   githubListRepos,
@@ -66,7 +66,6 @@ export const ALL_TOOLS = {
   github_create_issue: githubCreateIssue,
   github_search_code: githubSearchCode,
   github_list_branches: githubListBranches,
-  netlify_deploy: netlifyDeploy,
   netlify_list_deploys: netlifyListDeploys,
   proactive_message: proactiveMessage,
 } as const;

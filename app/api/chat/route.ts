@@ -101,10 +101,10 @@ export async function POST(req: NextRequest) {
         await handleGroup(inScopeAgents, memberAgentIds, chatId, content, recentMessages, isImplicitRouting, replyToAgentId, sendEvent);
       } catch (err) {
         if (isRateLimitError(err)) {
-          advanceFallbackModel();
+          advanceFallbackModel("cheap");
           sendEvent({ type: "error", message: `Rate limited on current model. Switched to fallback. Try sending again.` });
         } else if (isModelError(err)) {
-          advanceFallbackModel();
+          advanceFallbackModel("cheap");
           sendEvent({ type: "error", message: `Model error, switched to fallback. Try sending again.` });
         } else {
           sendEvent({
@@ -146,9 +146,9 @@ async function handleDM(
 
   const tools = getToolsForAgent(config.tools);
 
+  const isCoder = ["zack", "kevin", "beepbop"].includes(agentId);
   try {
-    const model = getModel(config.model);
-    const isCoder = ["zack", "kevin", "beepbop"].includes(agentId);
+    const model = getModel(isCoder ? "smart" : "cheap");
     const toolInstructions = `
 
 ## Safety & Content Rules
@@ -185,7 +185,7 @@ If you're unsure whether the user wants you to take action, ASK them first inste
     const result = streamText({
       model,
       system: config.persona + toolInstructions + await loadAgentMemory(agentId),
-      messages: [...historyMessages.slice(0, -1), { role: "user", content } as ModelMessage],
+      messages: [...historyMessages.slice(-12, -1), { role: "user", content } as ModelMessage],
       tools,
       stopWhen: isStepCount(isCoder ? 50 : 30),
     });
@@ -231,7 +231,7 @@ If you're unsure whether the user wants you to take action, ASK them first inste
     sendEvent({ type: "message_end", agentId, messageId: agentMessageId, content: fullText });
   } catch (err) {
     if (isRateLimitError(err) || isModelError(err)) {
-      advanceFallbackModel();
+      advanceFallbackModel(isCoder ? "smart" : "cheap");
       sendEvent({ type: "error", message: `Model error, switched to fallback. Try sending again.` });
     } else {
       sendEvent({
@@ -502,9 +502,10 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
     ? `${content}\n\n[Also in this chat but not asked to respond: ${otherMembers.join(", ")}]`
     : content;
 
+  // Group chats with coders use smart model, others use cheap
+  const hasCoders = inScopeAgentIds.some(id => ["zack", "kevin", "beepbop"].includes(id));
   try {
-    // Use the fallback chain — it auto-advances when rate limited
-    const model = getModel();
+    const model = getModel(hasCoders ? "smart" : "cheap");
 
     // All agents get their full toolset in every chat
     const allToolNames = new Set<string>();
@@ -525,7 +526,7 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
       model,
       system: systemPrompt,
       messages: [
-        ...historyMessages.slice(0, -1),
+        ...historyMessages.slice(-12, -1),
         { role: "user", content: userMessage } as ModelMessage,
       ],
       tools: hasTools ? groupTools : undefined,
@@ -744,11 +745,11 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
 
       // If tool calls happened, DON'T advance the fallback model — the model worked, it just didn't produce text markers
       if (!toolCallsHappened) {
-        advanceFallbackModel();
+        advanceFallbackModel(hasCoders ? "smart" : "cheap");
       }
 
       try {
-        const fallbackModel = getModel();
+        const fallbackModel = getModel(hasCoders ? "smart" : "cheap");
         // Get tool call results from the first attempt
         let toolCallSummary = "";
         try {
@@ -769,7 +770,7 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
           model: fallbackModel,
           system: systemPrompt + "\n\nCRITICAL: You MUST respond with [agent_id] markers. Start each agent's message with [agent_id] in brackets. Example:\n[zack] I read the files and found 3 bugs.\n[maya] I posted the update to X.\n\nDO NOT skip the [agent_id] markers. DO NOT respond without them.",
           messages: [
-            ...historyMessages.slice(0, -1),
+            ...historyMessages.slice(-12, -1),
             { role: "user", content: retryUserMessage } as ModelMessage,
           ],
           // No tools in retry — just generate text
@@ -834,7 +835,7 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
         }
       } catch (retryErr) {
         if (isRateLimitError(retryErr)) {
-          advanceFallbackModel();
+          advanceFallbackModel(hasCoders ? "smart" : "cheap");
         }
         sendEvent({
           type: "error",
@@ -881,7 +882,7 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
 
   } catch (err) {
     if (isRateLimitError(err) || isModelError(err)) {
-      advanceFallbackModel();
+      advanceFallbackModel(hasCoders ? "smart" : "cheap");
       sendEvent({ type: "error", message: `Model error, switched to fallback. Try sending again.` });
     } else {
       sendEvent({

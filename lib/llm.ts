@@ -3,6 +3,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGroq } from "@ai-sdk/groq";
 import type { LanguageModel } from "ai";
+import { nanoid } from "nanoid";
 
 export type ModelProvider = "google" | "openai" | "anthropic" | "groq";
 
@@ -13,6 +14,76 @@ const CHEAP_MODEL = "gemini-3.1-flash-lite";
 
 const SMART_FALLBACKS = [SMART_MODEL, "gemini-2.5-flash-lite", "gemini-2.0-flash"];
 const CHEAP_FALLBACKS = [CHEAP_MODEL, "gemini-2.0-flash-lite"];
+
+// Pricing per 1M tokens (USD) — for cost estimation
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  "gemini-2.5-flash": { input: 0.10, output: 0.40 },
+  "gemini-2.5-flash-lite": { input: 0.075, output: 0.30 },
+  "gemini-2.0-flash": { input: 0.10, output: 0.40 },
+  "gemini-2.0-flash-lite": { input: 0.075, output: 0.30 },
+  "gemini-3.1-flash-lite": { input: 0, output: 0 }, // free tier
+};
+
+// In-memory usage counters (reset on each serverless invocation)
+// These get logged to Supabase for persistence
+let usageBuffer: {
+  model: string;
+  tier: string;
+  agentId?: string;
+  chatId?: string;
+  inputTokens: number;
+  outputTokens: number;
+  toolCalls: number;
+}[] = [];
+
+/**
+ * Log an API call's usage to Supabase.
+ * Called after each streamText completes.
+ */
+export async function logApiUsage(params: {
+  model: string;
+  tier: "smart" | "cheap";
+  agentId?: string;
+  chatId?: string;
+  inputTokens: number;
+  outputTokens: number;
+  toolCalls: number;
+}) {
+  const pricing = MODEL_PRICING[params.model] ?? { input: 0, output: 0 };
+  const cost = (params.inputTokens / 1_000_000 * pricing.input) + (params.outputTokens / 1_000_000 * pricing.output);
+
+  // Log to console for debugging
+  console.log(`[usage] ${params.model} | in:${params.inputTokens} out:${params.outputTokens} tools:${params.toolCalls} | $${cost.toFixed(6)}`);
+
+  // Try to persist to Supabase (non-blocking, fail silently)
+  try {
+    const { supabase } = await import("@/db/client");
+    await supabase.from("api_usage").insert({
+      id: nanoid(),
+      model: params.model,
+      tier: params.tier,
+      agent_id: params.agentId ?? null,
+      chat_id: params.chatId ?? null,
+      input_tokens: params.inputTokens,
+      output_tokens: params.outputTokens,
+      total_tokens: params.inputTokens + params.outputTokens,
+      cost_usd: cost,
+      tool_calls: params.toolCalls,
+    });
+  } catch (e) {
+    // Table might not exist yet — fail silently
+  }
+}
+
+/**
+ * Get the model name that will be used for a given tier (for logging before the call).
+ */
+export function getModelName(tier: "smart" | "cheap" = "cheap"): string {
+  if (tier === "smart") {
+    return SMART_FALLBACKS[smartFallbackIndex] ?? SMART_FALLBACKS[0];
+  }
+  return CHEAP_FALLBACKS[cheapFallbackIndex] ?? CHEAP_FALLBACKS[0];
+}
 
 let smartFallbackIndex = 0;
 let cheapFallbackIndex = 0;

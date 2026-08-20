@@ -146,3 +146,21 @@ CREATE INDEX IF NOT EXISTS idx_leads_status ON leads (status);
 CREATE INDEX IF NOT EXISTS idx_reminders_agent_id ON reminders (agent_id);
 CREATE INDEX IF NOT EXISTS idx_reminders_due_at ON reminders (due_at);
 
+
+-- API Usage tracking
+CREATE TABLE IF NOT EXISTS api_usage (
+  id TEXT PRIMARY KEY,
+  model TEXT NOT NULL,
+  tier TEXT NOT NULL DEFAULT 'cheap',
+  agent_id TEXT,
+  chat_id TEXT,
+  input_tokens INTEGER DEFAULT 0,
+  output_tokens INTEGER DEFAULT 0,
+  total_tokens INTEGER DEFAULT 0,
+  cost_usd DECIMAL(10,6) DEFAULT 0,
+  tool_calls INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_usage_created ON api_usage (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_api_usage_model ON api_usage (model);

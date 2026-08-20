@@ -7,8 +7,9 @@ import type { ClientAgent as Agent } from "@/db/client-types";
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/avatar";
 import { GithubReposView } from "@/components/github/github-repos-view";
+import { UsageView } from "./usage-view";
 
-type Tab = "integrations" | "repos" | "agents";
+type Tab = "integrations" | "repos" | "agents" | "usage";
 
 export function SettingsView({ agents }: { agents: Agent[] }) {
   const [tab, setTab] = useState<Tab>("integrations");
@@ -80,6 +81,7 @@ export function SettingsView({ agents }: { agents: Agent[] }) {
             { id: "integrations" as Tab, label: "Apps" },
             { id: "repos" as Tab, label: "Repos" },
             { id: "agents" as Tab, label: "Agents" },
+            { id: "usage" as Tab, label: "Usage" },
           ]).map((t) => (
             <button
               key={t.id}
@@ -241,6 +243,8 @@ export function SettingsView({ agents }: { agents: Agent[] }) {
         )}
 
         {tab === "repos" && <GithubReposView />}
+
+        {tab === "usage" && <UsageView />}
 
         {tab === "agents" && (
           <>

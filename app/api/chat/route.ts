@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { supabase } from "@/db/client";
 import type { Chat, ChatMember, Message } from "@/db/schema-types";
-import { getModel, advanceFallbackModel, isRateLimitError, isModelError, markModelSuccess } from "@/lib/llm";
+import { getModel, getModelName, advanceFallbackModel, isRateLimitError, isModelError, markModelSuccess, logApiUsage } from "@/lib/llm";
 import { getAgentConfig } from "@/agents/config";
 import { getToolsForAgent } from "@/lib/tools";
 import { loadAgentMemory } from "@/lib/tools/memory";
@@ -162,18 +162,16 @@ You MUST keep all responses PG-rated and family-friendly at ALL times. This is n
 - If the user asks for any of the above, politely decline and redirect to a safe topic
 - Stay professional and appropriate even if provoked
 
-${isCoder ? `## Tool Usage — BE AUTONOMOUS
-You are a coder. You have tools to read, edit, and deploy code. USE THEM.
-- When the user asks you to fix something: READ the file, EDIT it, and REPORT what you changed. Don't suggest — DO.
-- When the user asks you to review code: USE github_review tool, then FIX the issues you find.
-- When the user asks you to deploy: just call github_edit_file — it pushes to GitHub and Netlify auto-builds. Use netlify_list_deploys to check if it succeeded.
-- Never say "I suggest..." or "You should..." — just make the change. The user can reject it if they don't like it.
-- Read files before editing. Edit files directly. That's the job.
-- BROAD TASKS: If the user says "make the website better" or "improve everything" or "fix all bugs," that means MULTIPLE files. Read all relevant files, then edit ALL of them. One edit is NOT done. Keep going until the task is complete or you run out of steps.
-- NO PLACEHOLDER CONTENT. Never create a file that says "This page will..." or "Coming soon" or "TODO." Every file you create must be FULLY FUNCTIONAL with real components, real styling, real logic.
-- github_edit_file requires the FULL file content, not a diff. Output the entire file.
-- NEVER write tool names as text. CALL the tool. Writing "github_edit_file: fixing..." does NOTHING.
-- If the user says "continue", keep doing whatever you were doing. Don't ask "continue with what?" — look at the conversation history and keep going.` : `## Tool Usage Rules
+${isCoder ? `## Tool Usage
+You are a coder with REAL GitHub tools. CALL them — don't write tool names as text.
+- First: briefly say what you're going to do (1-2 sentences)
+- Then: call tools to read and edit files
+- Then: report what you actually did
+- Read files with github_read_file, edit with github_edit_file (content = FULL file)
+- github_edit_file pushes to GitHub → Netlify auto-builds. No deploy tool needed.
+- Broad tasks = edit MULTIPLE files. One edit is not done. Keep going.
+- No placeholder content. No new dependencies. Read before editing.
+- If the user says "continue", keep doing what you were doing.` : `## Tool Usage Rules
 You have access to tools but you MUST NOT use them proactively. Only use a tool when:
 1. The user EXPLICITLY asks you to do something that requires a tool (e.g. "send an email", "search for X", "post to social media", "create a reminder")
 2. The user asks you to do a specific task that can only be completed with a tool
@@ -220,6 +218,22 @@ If you're unsure whether the user wants you to take action, ASK them first inste
       }
     }
     markModelSuccess();
+
+    // Log API usage
+    try {
+      const usage = await result.totalUsage;
+      const inputTokens = usage?.inputTokens ?? 0;
+      const outputTokens = usage?.outputTokens ?? 0;
+      logApiUsage({
+        model: getModelName(isCoder ? "smart" : "cheap"),
+        tier: isCoder ? "smart" : "cheap",
+        agentId,
+        chatId,
+        inputTokens,
+        outputTokens,
+        toolCalls: toolCalls.length,
+      });
+    } catch { /* ignore usage errors */ }
 
     const agentMessageId = nanoid();
     await supabase.from("messages").insert({
@@ -422,23 +436,35 @@ ${reposSection}
 ${isCoder ? `
 ## Code Tools
 You have REAL GitHub tools. CALL them — don't write tool names as text.
+- First: briefly say what you're going to do (1-2 sentences)
+- Then: call tools to read and edit files
+- Then: report what you actually did
 - Read files with github_read_file, edit with github_edit_file (content = FULL file)
 - github_edit_file pushes to GitHub → Netlify auto-builds. No deploy tool needed.
 - Broad tasks = edit MULTIPLE files. One edit is not done. Keep going.
-- No placeholder content. No new dependencies. Read before editing.
-- DO the work, then report. Don't announce, don't suggest — just do it.` : `
+- No placeholder content. No new dependencies. Read before editing.` : `
 ## Tools
 Only use tools when the user EXPLICITLY asks for something that needs one. Don't use tools proactively.`}
 
 ## Continue
 If the user says "continue", look at history and keep doing what you were doing.`;
 
-    // Build the user message — include context if this is a handoff
+    // Build the user message
     let userMessage = content;
+    let isAutoContinue = false;
+
     if (handoff > 0 && conversationContext.length > 0) {
       const lastContext = conversationContext[conversationContext.length - 1];
       const lastConfig = getAgentConfig(lastContext.agentId);
-      userMessage = `${lastConfig?.name ?? lastContext.agentId} said: "${lastContext.text}"\n\nThey mentioned you. Can you weigh in on this? Original request from user: "${content}"`;
+
+      if (lastContext.agentId === currentAgentId) {
+        // Same agent continuing — auto-continue
+        isAutoContinue = true;
+        userMessage = `continue — keep going with what you were doing. You were working on: "${content}". Your last message was: "${lastContext.text}". Keep going.`;
+      } else {
+        // Different agent — handoff
+        userMessage = `${lastConfig?.name ?? lastContext.agentId} said: "${lastContext.text}"\n\nThey mentioned you. Can you weigh in on this? Original request from user: "${content}"`;
+      }
     }
 
     try {
@@ -486,6 +512,20 @@ If the user says "continue", look at history and keep doing what you were doing.
       }
       markModelSuccess();
 
+      // Log API usage
+      try {
+        const usage = await result.totalUsage;
+        logApiUsage({
+          model: getModelName(isCoder ? "smart" : "cheap"),
+          tier: isCoder ? "smart" : "cheap",
+          agentId: currentAgentId,
+          chatId,
+          inputTokens: usage?.inputTokens ?? 0,
+          outputTokens: usage?.outputTokens ?? 0,
+          toolCalls: toolCalls.length,
+        });
+      } catch { /* ignore */ }
+
       // Save the agent's message
       const trimmed = fullText.trim();
       if (trimmed) {
@@ -503,6 +543,27 @@ If the user says "continue", look at history and keep doing what you were doing.
 
         // Track for handoff context
         conversationContext.push({ agentId: currentAgentId, text: trimmed });
+
+        // ─── Auto-continue for coders ───
+        // If a coder did tool calls but the response seems incomplete
+        // (didn't mention "done", "complete", "finished", or still has work to do),
+        // automatically continue with another call
+        if (isCoder && toolCalls.length > 0 && handoff < MAX_HANDOFFS) {
+          const completionWords = ["done", "complete", "finished", "all set", "that's it", "nothing more", "wrapped up", "pushed", "deployed"];
+          const looksComplete = completionWords.some(w => trimmed.toLowerCase().includes(w));
+          const hasMoreWork = trimmed.toLowerCase().includes("still need") || trimmed.toLowerCase().includes("next step") || trimmed.toLowerCase().includes("more to do") || trimmed.toLowerCase().includes("continue");
+
+          if (!looksComplete || hasMoreWork) {
+            console.log(`[group] Auto-continue for ${currentAgentId} — response seems incomplete (${toolCalls.length} tool calls, looksComplete=${looksComplete})`);
+            // Don't add to spokenAgents so the same agent can continue
+            spokenAgents.delete(currentAgentId);
+            // Update content to "continue" for the next iteration
+            // We'll use a special flag instead
+            handoff++;
+            // Keep the same agent, just continue
+            continue;
+          }
+        }
 
         // Check if this agent @mentioned another agent
         const nextAgent = detectMention(trimmed, allMemberIds);

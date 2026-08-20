@@ -219,19 +219,22 @@ If you're unsure whether the user wants you to take action, ASK them first inste
 
     // Helper to finalize the current text message and save it
     async function flushCurrentMessage() {
-      if (currentText.trim() || currentMessageToolCalls.length > 0) {
+      const hasText = currentText.trim().length > 0;
+      const hasTools = currentMessageToolCalls.length > 0;
+      if (hasText || hasTools) {
         const msgId = currentMessageId ?? nanoid();
+        const content = hasText ? currentText.trim() : "";
         await supabase.from("messages").insert({
           id: msgId,
           chat_id: chatId,
           sender_id: agentId,
           sender_type: "agent",
-          content: currentText.trim(),
+          content,
           mentions: [],
           tool_calls: currentMessageToolCalls,
         });
-        sendEvent({ type: "message_end", agentId, messageId: msgId, content: currentText.trim() });
-        fullText += currentText;
+        sendEvent({ type: "message_end", agentId, messageId: msgId, content });
+        if (hasText) fullText += currentText;
         currentText = "";
         currentMessageId = null;
         currentMessageToolCalls = [];
@@ -564,20 +567,25 @@ If the user says "continue", look at history and keep doing what you were doing.
 
       // Helper to flush current text+tools as a message
       async function flushGroupMessage() {
-        if (currentText.trim() || currentToolCalls.length > 0) {
+        const hasText = currentText.trim().length > 0;
+        const hasTools = currentToolCalls.length > 0;
+        if (hasText || hasTools) {
           const msgId = currentMsgId ?? nanoid();
+          const content = hasText ? currentText.trim() : "";
           await supabase.from("messages").insert({
             id: msgId,
             chat_id: chatId,
             sender_id: currentAgentId,
             sender_type: "agent",
-            content: currentText.trim(),
+            content,
             mentions: [],
             tool_calls: currentToolCalls,
           });
-          sendEvent({ type: "message_end", agentId: currentAgentId, messageId: msgId, content: currentText.trim() });
-          fullText += (fullText ? "\n" : "") + currentText.trim();
-          conversationContext.push({ agentId: currentAgentId, text: currentText.trim() });
+          sendEvent({ type: "message_end", agentId: currentAgentId, messageId: msgId, content });
+          if (hasText) {
+            fullText += (fullText ? "\n" : "") + content;
+            conversationContext.push({ agentId: currentAgentId, text: content });
+          }
           currentText = "";
           currentMsgId = null;
           currentToolCalls = [];

@@ -240,30 +240,31 @@ async function sendChatMessage(agentId: string, content: string) {
 export const handler = schedule("*/1 * * * *", async () => {
   console.log("[autonomous] Heartbeat check at", new Date().toISOString());
 
+  try {
   if (!GEMINI_API_KEY || !GITHUB_TOKEN) {
     console.log("[autonomous] Missing API keys — skipping");
-    return { statusCode: 200, body: "No keys" };
+    return { statusCode: 200, body: JSON.stringify({ status: "No keys" }) };
   }
 
   // Check if chat is idle
   const { idle, lastHumanMsg } = await isChatIdle();
   if (!idle) {
     console.log("[autonomous] Chat is active (recent human message) — skipping");
-    return { statusCode: 200, body: "Chat active" };
+    return { statusCode: 200, body: JSON.stringify({ status: "Chat active" }) };
   }
 
   // Check cooldown
   const recentlyWorkedResult = await recentlyWorked();
   if (recentlyWorkedResult) {
     console.log("[autonomous] Recently worked — skipping (cooldown)");
-    return { statusCode: 200, body: "Cooldown" };
+    return { statusCode: 200, body: JSON.stringify({ status: "Cooldown" }) };
   }
 
   // Get opened repos
   const repos = await getOpenedRepos();
   if (repos.length === 0) {
     console.log("[autonomous] No repos opened — skipping");
-    return { statusCode: 200, body: "No repos" };
+    return { statusCode: 200, body: JSON.stringify({ status: "No repos" }) };
   }
 
   // Pick first repo
@@ -286,7 +287,7 @@ export const handler = schedule("*/1 * * * *", async () => {
   const workTopic = await decideWorkTopic(repos, recentCommits, recentMessages);
   if (!workTopic || !workTopic.files || workTopic.files.length === 0) {
     console.log("[autonomous] No work topic identified — skipping");
-    return { statusCode: 200, body: "No topic" };
+    return { statusCode: 200, body: JSON.stringify({ status: "No topic" }) };
   }
 
   console.log(`[autonomous] Work topic: ${workTopic.topic} — files: ${workTopic.files.join(", ")}`);
@@ -346,4 +347,8 @@ export const handler = schedule("*/1 * * * *", async () => {
     statusCode: 200,
     body: JSON.stringify({ edits: editsMade, topic: workTopic.topic }),
   };
+  } catch (err) {
+    console.error("[autonomous] FATAL ERROR:", err);
+    return { statusCode: 500, body: JSON.stringify({ error: err instanceof Error ? err.message : "Unknown error" }) };
+  }
 });

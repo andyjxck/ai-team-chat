@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "@/components/providers";
+import { Notification } from "@/components/notification";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +31,7 @@ export default function RootLayout({
       </head>
       <body className="antialiased">
         <Providers>{children}</Providers>
+        <Notification />
       </body>
     </html>
   );

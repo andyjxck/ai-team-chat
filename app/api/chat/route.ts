@@ -424,7 +424,7 @@ If the user says "continue", look at history and keep doing what you were doing.
     // Heartbeats during tool calls keep the Netlify connection alive
     const hasTools = hasCoders;
     // Set agent context for tools (use first coder if available, else first in-scope)
-    const primaryAgentId = orderedIds.find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? orderedIds[0];
+    const primaryAgentId = activeAgentIds.find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? activeAgentIds[0];
     (globalThis as Record<string, unknown>).__currentAgentId = primaryAgentId;
     const result = streamText({
       model,
@@ -488,10 +488,10 @@ If the user says "continue", look at history and keep doing what you were doing.
         if (!currentAgentId) {
           const codeTools = ["github_edit_file", "github_read_file", "github_list_files", "github_list_repos", "github_delete_file", "github_get_commits", "github_review", "github_create_branch", "github_create_pr", "github_create_issue", "github_search_code", "github_list_branches", "netlify_list_deploys"];
           if (codeTools.includes(toolName)) {
-            toolAgentId = Object.keys(agentResponses).find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? orderedIds.find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? "zack";
+            toolAgentId = Object.keys(agentResponses).find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? activeAgentIds.find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? "zack";
           } else {
             // Find an agent that has this tool
-            const agentWithTool = orderedIds.find(id => {
+            const agentWithTool = activeAgentIds.find(id => {
               const config = getAgentConfig(id);
               return config?.tools.includes(toolName);
             });
@@ -510,9 +510,9 @@ If the user says "continue", look at history and keep doing what you were doing.
         if (!currentAgentId) {
           const codeTools = ["github_edit_file", "github_read_file", "github_list_files", "github_list_repos", "github_delete_file", "github_get_commits", "github_review", "github_create_branch", "github_create_pr", "github_create_issue", "github_search_code", "github_list_branches", "netlify_list_deploys"];
           if (codeTools.includes(toolName)) {
-            toolAgentId = Object.keys(agentResponses).find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? orderedIds.find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? "zack";
+            toolAgentId = Object.keys(agentResponses).find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? activeAgentIds.find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? "zack";
           } else {
-            const agentWithTool = orderedIds.find(id => {
+            const agentWithTool = activeAgentIds.find(id => {
               const config = getAgentConfig(id);
               return config?.tools.includes(toolName);
             });
@@ -639,12 +639,18 @@ If the user says "continue", look at history and keep doing what you were doing.
     }
 
     // If no agents responded with markers, try a fallback
-    if (!fullText.match(/\[\w+\]/) || !orderedIds.some((id) => fullText.includes(`[${id}]`))) {
+    if (!fullText.match(/\[\w+\]/) || !activeAgentIds.some((id) => fullText.includes(`[${id}]`))) {
       // Check if tool calls actually happened — if so, the model worked but just didn't format text
       let toolCallsHappened = false;
+      let toolCallSummary = "";
       try {
         const firstToolCalls = await result.toolCalls;
         toolCallsHappened = !!(firstToolCalls && firstToolCalls.length > 0);
+        if (toolCallsHappened) {
+          toolCallSummary = "\n\n[Tool calls already completed:\n" + firstToolCalls.map((tc: { toolName: string; input: unknown }) =>
+            `- ${tc.toolName}(${JSON.stringify(tc.input).slice(0, 300)})`
+          ).join("\n") + "\n]";
+        }
       } catch { /* ignore */ }
 
       // If tool calls happened, DON'T advance the fallback model — the model worked, it just didn't produce text markers
@@ -654,32 +660,22 @@ If the user says "continue", look at history and keep doing what you were doing.
 
       try {
         const fallbackModel = getModel(hasCoders ? "smart" : "cheap");
-        // Get tool call results from the first attempt
-        let toolCallSummary = "";
-        try {
-          const firstToolCalls = await result.toolCalls;
-          if (firstToolCalls && firstToolCalls.length > 0) {
-            toolCallSummary = "\n\n[Tool calls already completed:\n" + firstToolCalls.map((tc: { toolName: string; input: unknown }) =>
-              `- ${tc.toolName}(${JSON.stringify(tc.input).slice(0, 300)})`
-            ).join("\n") + "\n]";
-          }
-        } catch { /* ignore */ }
 
         // Retry WITHOUT tools so the model just produces text immediately
         const retryUserMessage = toolCallSummary
-          ? `${userMessage}\n\n${toolCallSummary}\n\nNow report what you did. Each agent that responds MUST start with [agent_id] in brackets, then their message. Example: [zack] I fixed the bug in route.ts and deployed.`
-          : userMessage;
+          ? `${userMessage}\n\n${toolCallSummary}\n\nNow report what you did. Each agent that responds MUST start with [agent_id] in brackets, then their message. Example: [zack] I read the files and found 3 bugs.`
+          : `${userMessage}\n\nRespond now. Each agent MUST start with [agent_id] in brackets. Example: [zack] Here's what I found.`;
 
         retryResult = streamText({
           model: fallbackModel,
-          system: systemPrompt + "\n\nCRITICAL: You MUST respond with [agent_id] markers. Start each agent's message with [agent_id] in brackets. Example:\n[zack] I read the files and found 3 bugs.\n[maya] I posted the update to X.\n\nDO NOT skip the [agent_id] markers. DO NOT respond without them.",
+          system: systemPrompt + "\n\nCRITICAL: You MUST respond with [agent_id] markers. Start each agent's message with [agent_id] in brackets. Example:\n[zack] I read the files and found 3 bugs.\n\nDO NOT skip the [agent_id] markers. DO NOT respond without them.",
           messages: [
             ...historyMessages.slice(-12, -1),
             { role: "user", content: retryUserMessage } as ModelMessage,
           ],
           // No tools in retry — just generate text
           stopWhen: isStepCount(1),
-          maxOutputTokens: hasCoders ? 8000 : undefined,
+          maxOutputTokens: hasCoders ? 8000 : 4000,
         });
 
         let retryText = "";
@@ -687,12 +683,11 @@ If the user says "continue", look at history and keep doing what you were doing.
           retryText += delta;
         }
 
-        // Check if fallback produced valid agent markers (tolerate markdown bold)
-        const hasValidMarkers = orderedIds.some((id) =>
-          retryText.includes(`[${id}]`) || retryText.includes(`**[${id}]**`) || retryText.includes(`[${id}]`)
+        // Check if fallback produced valid agent markers
+        const hasValidMarkers = activeAgentIds.some((id) =>
+          retryText.includes(`[${id}]`)
         );
         console.log("[chat] Retry text length:", retryText.length, "hasValidMarkers:", hasValidMarkers);
-        console.log("[chat] Retry text (first 300):", retryText.slice(0, 300));
 
         if (hasValidMarkers) {
           fullText = retryText;
@@ -723,19 +718,34 @@ If the user says "continue", look at history and keep doing what you were doing.
             sendEvent({ type: "token", agentId: retryAgentId, text: retryAgentText });
             await finalizeAgent(retryAgentId, retryAgentText, chatId, sendEvent, agentResponses, agentToolCallMap[retryAgentId]);
           }
-        } else {
-          // No markers found — just send the text as the first expected agent
-          const fallbackAgentId = activeAgentIds[0];
-          if (fallbackAgentId && retryText.trim()) {
+        } else if (retryText.trim()) {
+          // No markers found but there IS text — send as the primary agent
+          const fallbackAgentId = hasCoders
+            ? activeAgentIds.find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? activeAgentIds[0]
+            : activeAgentIds[0];
+          if (fallbackAgentId) {
+            // Strip any fake markers from the text
+            const cleanText = retryText.replace(/^\*?\*?\[\w+\]\*?\*?\s*/, "").trim();
             sendEvent({ type: "agent_start", agentId: fallbackAgentId });
-            sendEvent({ type: "token", agentId: fallbackAgentId, text: retryText });
-            await finalizeAgent(fallbackAgentId, retryText, chatId, sendEvent, agentResponses, agentToolCallMap[fallbackAgentId]);
-          } else {
-            sendEvent({
-              type: "error",
-              message: `No response generated. Retry text: ${retryText.slice(0, 500)}`,
-            });
+            sendEvent({ type: "token", agentId: fallbackAgentId, text: cleanText });
+            await finalizeAgent(fallbackAgentId, cleanText, chatId, sendEvent, agentResponses, agentToolCallMap[fallbackAgentId]);
           }
+        } else if (toolCallsHappened) {
+          // Tool calls happened but retry produced nothing — generate a basic summary
+          const fallbackAgentId = hasCoders
+            ? activeAgentIds.find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? activeAgentIds[0]
+            : activeAgentIds[0];
+          if (fallbackAgentId) {
+            const summary = `I ran some tools but didn't produce a summary. Check the tool call results above to see what I did.`;
+            sendEvent({ type: "agent_start", agentId: fallbackAgentId });
+            sendEvent({ type: "token", agentId: fallbackAgentId, text: summary });
+            await finalizeAgent(fallbackAgentId, summary, chatId, sendEvent, agentResponses, agentToolCallMap[fallbackAgentId]);
+          }
+        } else {
+          sendEvent({
+            type: "error",
+            message: `No response generated. Try sending again.`,
+          });
         }
       } catch (retryErr) {
         if (isRateLimitError(retryErr)) {

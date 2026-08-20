@@ -168,16 +168,25 @@ You MUST keep all responses PG-rated and family-friendly at ALL times. This is n
 - If the user asks for any of the above, politely decline and redirect to a safe topic
 - Stay professional and appropriate even if provoked
 
-${isCoder ? `## Tool Usage
-You are a coder with REAL GitHub tools. CALL them — don't write tool names as text.
-- First: briefly say what you're going to do (1-2 sentences)
-- Then: call tools to read and edit files
-- Then: report what you actually did
-- Read files with github_read_file, edit with github_edit_file (content = FULL file)
-- github_edit_file pushes to GitHub → Netlify auto-builds. No deploy tool needed.
-- Broad tasks = edit MULTIPLE files. One edit is not done. Keep going.
-- No placeholder content. No new dependencies. Read before editing.
-- If the user says "continue", keep doing what you were doing.` : `## Tool Usage Rules
+${isCoder ? `## How You Work — AGENTIC LOOP
+You are an autonomous coding agent. You work by calling tools in a loop:
+1. Call github_list_files to see the repo structure
+2. Call github_read_file to read files you need to understand
+3. Call github_edit_file to make changes (content = FULL file, not a diff)
+4. Repeat steps 2-3 until the task is FULLY complete
+5. Only AFTER all edits are done, write a summary of what you changed
+
+DO NOT STOP after reading files. Reading is not doing. After you read, you EDIT.
+DO NOT write a plan and stop. Plans are not work. Execute the plan with tool calls.
+DO NOT say "I will..." or "I need to..." — just CALL THE TOOL.
+DO NOT write tool names as text. CALL them.
+
+github_edit_file pushes to GitHub → Netlify auto-builds automatically.
+For broad tasks, edit MULTIPLE files. Keep calling tools until done.
+Read before editing. No placeholder content. No new dependencies.
+
+You have up to 50 tool-call steps. USE THEM. A real task takes 5-15 tool calls minimum.
+If you've only made 1-2 tool calls, you're NOT DONE. Keep going.` : `## Tool Usage Rules
 You have access to tools but you MUST NOT use them proactively. Only use a tool when:
 1. The user EXPLICITLY asks you to do something that requires a tool (e.g. "send an email", "search for X", "post to social media", "create a reminder")
 2. The user asks you to do a specific task that can only be completed with a tool
@@ -272,6 +281,10 @@ If you're unsure whether the user wants you to take action, ASK them first inste
     }
     // Flush any remaining text
     await flushCurrentMessage();
+    // If there's still a streaming message with no content, clear it
+    if (currentMessageId) {
+      sendEvent({ type: "message_end", agentId, messageId: currentMessageId, content: "" });
+    }
     markModelSuccess();
 
     // Log API usage
@@ -477,15 +490,25 @@ ${reposSection}
 - Only @mention someone if you genuinely need their input. Don't just pass the buck.
 - If you can answer yourself, just answer. Don't @mention unnecessarily.
 ${isCoder ? `
-## Code Tools
-You have REAL GitHub tools. CALL them — don't write tool names as text.
-- First: briefly say what you're going to do (1-2 sentences)
-- Then: call tools to read and edit files
-- Then: report what you actually did
-- Read files with github_read_file, edit with github_edit_file (content = FULL file)
-- github_edit_file pushes to GitHub → Netlify auto-builds. No deploy tool needed.
-- Broad tasks = edit MULTIPLE files. One edit is not done. Keep going.
-- No placeholder content. No new dependencies. Read before editing.` : `
+## How You Work — AGENTIC LOOP
+You are an autonomous coding agent. You work by calling tools in a loop:
+1. Call github_list_files to see the repo structure
+2. Call github_read_file to read files you need to understand
+3. Call github_edit_file to make changes (content = FULL file, not a diff)
+4. Repeat steps 2-3 until the task is FULLY complete
+5. Only AFTER all edits are done, write a summary of what you changed
+
+DO NOT STOP after reading files. Reading is not doing. After you read, you EDIT.
+DO NOT write a plan and stop. Plans are not work. Execute the plan with tool calls.
+DO NOT say "I will..." or "I need to..." — just CALL THE TOOL.
+DO NOT write tool names as text. CALL them.
+
+github_edit_file pushes to GitHub → Netlify auto-builds automatically.
+For broad tasks, edit MULTIPLE files. Keep calling tools until done.
+Read before editing. No placeholder content. No new dependencies.
+
+You have up to 50 tool-call steps. USE THEM. A real task takes 5-15 tool calls minimum.
+If you've only made 1-2 tool calls, you're NOT DONE. Keep going.` : `
 ## Tools
 Only use tools when the user EXPLICITLY asks for something that needs one. Don't use tools proactively.`}
 
@@ -494,20 +517,12 @@ If the user says "continue", look at history and keep doing what you were doing.
 
     // Build the user message
     let userMessage = content;
-    let isAutoContinue = false;
 
     if (handoff > 0 && conversationContext.length > 0) {
       const lastContext = conversationContext[conversationContext.length - 1];
       const lastConfig = getAgentConfig(lastContext.agentId);
-
-      if (lastContext.agentId === currentAgentId) {
-        // Same agent continuing — auto-continue
-        isAutoContinue = true;
-        userMessage = `continue — keep going with what you were doing. You were working on: "${content}". Your last message was: "${lastContext.text}". Keep going.`;
-      } else {
-        // Different agent — handoff
-        userMessage = `${lastConfig?.name ?? lastContext.agentId} said: "${lastContext.text}"\n\nThey mentioned you. Can you weigh in on this? Original request from user: "${content}"`;
-      }
+      // Different agent — handoff
+      userMessage = `${lastConfig?.name ?? lastContext.agentId} said: "${lastContext.text}"\n\nThey mentioned you. Can you weigh in on this? Original request from user: "${content}"`;
     }
 
     try {
@@ -617,40 +632,14 @@ If the user says "continue", look at history and keep doing what you were doing.
         });
       } catch { /* ignore */ }
 
-      // Use allToolCalls for auto-continue check
+      // Use allToolCalls for handoff check
       const toolCalls = allToolCalls;
       const trimmed = fullText.trim();
       if (trimmed || toolCalls.length > 0) {
 
-        // ─── Auto-continue for coders ───
-        // If a coder did tool calls but the response seems incomplete
-        // (didn't mention "done", "complete", "finished", or still has work to do),
-        // automatically continue with another call
-        // BUT: don't continue if any tool was blocked (prevents loops)
-        const hasBlockedTool = toolCalls.some(tc => {
-          const result = tc.result as Record<string, unknown> | undefined;
-          return result?.blocked === true || result?.error !== undefined;
-        });
-        if (isCoder && toolCalls.length > 0 && !hasBlockedTool && handoff < MAX_HANDOFFS) {
-          const completionWords = ["done", "complete", "finished", "all set", "that's it", "nothing more", "wrapped up", "pushed", "deployed"];
-          const looksComplete = completionWords.some(w => trimmed.toLowerCase().includes(w));
-          const hasMoreWork = trimmed.toLowerCase().includes("still need") || trimmed.toLowerCase().includes("next step") || trimmed.toLowerCase().includes("more to do") || trimmed.toLowerCase().includes("continue");
-
-          if (!looksComplete || hasMoreWork) {
-            console.log(`[group] Auto-continue for ${currentAgentId} — response seems incomplete (${toolCalls.length} tool calls, looksComplete=${looksComplete})`);
-            // Don't add to spokenAgents so the same agent can continue
-            spokenAgents.delete(currentAgentId);
-            handoff++;
-            continue;
-          }
-        }
-        if (hasBlockedTool) {
-          console.log(`[group] ${currentAgentId} had a blocked/errored tool — stopping auto-continue to prevent loop`);
-        }
-
         // Check if this agent @mentioned another agent
         const nextAgent = detectMention(trimmed, allMemberIds);
-        console.log(`[group] ${currentAgentId} response (${trimmed.length} chars). Mention detected: ${nextAgent ?? "none"}. Handoff ${handoff}/${MAX_HANDOFFS}`);
+        console.log(`[group] ${currentAgentId} response (${trimmed.length} chars, ${toolCalls.length} tool calls). Mention detected: ${nextAgent ?? "none"}. Handoff ${handoff}/${MAX_HANDOFFS}`);
         if (nextAgent && !spokenAgents.has(nextAgent) && handoff < MAX_HANDOFFS) {
           console.log(`[group] ${currentAgentId} mentioned ${nextAgent} — handing off`);
           // Small delay for natural feel

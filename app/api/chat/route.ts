@@ -257,17 +257,24 @@ const CODER_IDS = ["zack", "kevin", "beepbop"];
 
 // Detect @mentions in agent output (e.g. "Let me ask @Zack about this")
 function detectMention(text: string, allMemberIds: string[]): string | null {
-  // Match @AgentName (case insensitive)
-  const mentionRegex = /@(\w+)/g;
+  // Build a map of all possible names/ids for matching
+  const nameMap: Record<string, string> = {};
+  for (const id of allMemberIds) {
+    const config = getAgentConfig(id);
+    nameMap[id.toLowerCase()] = id;
+    if (config?.name) {
+      nameMap[config.name.toLowerCase()] = id;
+      // Also map common nicknames
+      if (config.name.toLowerCase() === "zackary") nameMap["zack"] = id;
+    }
+  }
+
+  // Match @AgentName (case insensitive) — allow spaces and hyphens in names
+  const mentionRegex = /@([A-Za-z][A-Za-z\-_ ]{0,20})/g;
   let match;
   while ((match = mentionRegex.exec(text)) !== null) {
-    const mentioned = match[1].toLowerCase();
-    // Check if it's an agent name or ID
-    const agent = allMemberIds.find(id => {
-      const config = getAgentConfig(id);
-      return id === mentioned || (config?.name?.toLowerCase() === mentioned);
-    });
-    if (agent) return agent;
+    const mentioned = match[1].trim().toLowerCase();
+    if (nameMap[mentioned]) return nameMap[mentioned];
   }
   return null;
 }
@@ -499,6 +506,7 @@ If the user says "continue", look at history and keep doing what you were doing.
 
         // Check if this agent @mentioned another agent
         const nextAgent = detectMention(trimmed, allMemberIds);
+        console.log(`[group] ${currentAgentId} response (${trimmed.length} chars). Mention detected: ${nextAgent ?? "none"}. Handoff ${handoff}/${MAX_HANDOFFS}`);
         if (nextAgent && !spokenAgents.has(nextAgent) && handoff < MAX_HANDOFFS) {
           console.log(`[group] ${currentAgentId} mentioned ${nextAgent} — handing off`);
           // Small delay for natural feel

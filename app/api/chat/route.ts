@@ -193,30 +193,33 @@ If you're unsure whether the user wants you to take action, ASK them first inste
     let fullText = "";
     const toolCalls: { tool: string; args: Record<string, unknown>; result?: unknown; error?: string }[] = [];
 
-    for await (const delta of result.textStream) {
-      fullText += delta;
-      sendEvent({ type: "token", agentId, text: delta });
-    }
-    markModelSuccess();
-
-    const toolCallResults = await result.toolCalls;
-    const toolResultData = await result.toolResults;
-
-    for (let i = 0; i < toolCallResults.length; i++) {
-      const tc = toolCallResults[i] as { toolName: string; input: unknown };
-      const toolName = String(tc.toolName);
-      const args = tc.input as Record<string, unknown>;
-      sendEvent({ type: "tool_call", agentId, tool: toolName, args });
-      const tr = toolResultData[i] as { output: unknown } | undefined;
-      if (tr) {
-        const resultData = tr.output as unknown;
-        const error = (resultData as { error?: string })?.error;
-        sendEvent({ type: "tool_result", agentId, tool: toolName, result: resultData, error });
-        toolCalls.push({ tool: toolName, args, result: resultData, error });
-      } else {
-        toolCalls.push({ tool: toolName, args });
+    // Use fullStream to get tool calls AND text in real-time
+    for await (const part of result.fullStream) {
+      if (part.type === "text-delta") {
+        const delta = (part as { text: string }).text;
+        fullText += delta;
+        sendEvent({ type: "token", agentId, text: delta });
+      } else if (part.type === "tool-call") {
+        const toolName = (part as { toolName: string }).toolName;
+        const toolInput = (part as { input: unknown }).input;
+        sendEvent({ type: "tool_call", agentId, tool: toolName, args: toolInput });
+        sendEvent({ type: "heartbeat", tool: toolName });
+        toolCalls.push({ tool: toolName, args: toolInput as Record<string, unknown> });
+      } else if (part.type === "tool-result") {
+        const toolName = (part as { toolName: string }).toolName;
+        const output = (part as { output: unknown }).output;
+        const error = (output as { error?: string })?.error;
+        // Update the tracked tool call with its result
+        const pending = toolCalls.find(tc => tc.tool === toolName && tc.result === undefined);
+        if (pending) {
+          pending.result = output;
+          pending.error = error;
+        }
+        sendEvent({ type: "tool_result", agentId, tool: toolName, result: output, error });
+        sendEvent({ type: "heartbeat", tool: toolName, result: "done" });
       }
     }
+    markModelSuccess();
 
     const agentMessageId = nanoid();
     await supabase.from("messages").insert({
@@ -244,7 +247,64 @@ If you're unsure whether the user wants you to take action, ASK them first inste
   }
 }
 
-// ─── Group handler: ONE call for all agents ───
+
+// ─── Group handler: sequential agent calls with @mention handoff ───
+// Each agent gets their own focused API call — no markers, no parser.
+// If an agent @mentions another agent, we make a follow-up call with that agent.
+// All one continuous stream to the user.
+
+const CODER_IDS = ["zack", "kevin", "beepbop"];
+
+// Detect @mentions in agent output (e.g. "Let me ask @Zack about this")
+function detectMention(text: string, allMemberIds: string[]): string | null {
+  // Match @AgentName (case insensitive)
+  const mentionRegex = /@(\w+)/g;
+  let match;
+  while ((match = mentionRegex.exec(text)) !== null) {
+    const mentioned = match[1].toLowerCase();
+    // Check if it's an agent name or ID
+    const agent = allMemberIds.find(id => {
+      const config = getAgentConfig(id);
+      return id === mentioned || (config?.name?.toLowerCase() === mentioned);
+    });
+    if (agent) return agent;
+  }
+  return null;
+}
+
+// Pick the best agent for a message when nobody is @mentioned
+function pickAgentByContent(content: string, memberIds: string[]): string {
+  const lower = content.toLowerCase();
+  // Coding keywords
+  const codingKw = ["code", "bug", "fix", "edit", "refactor", "deploy", "file", "github", "commit", "push", "build", "css", "ui", "component", "api", "route", "function", "typescript", "react", "next", "sidebar", "layout", "page", "style", "design", "app", "website", "frontend", "backend", "database", "error", "crash", "broken", "update", "improve", "change", "add", "create", "remove", "delete", "clean", "polish", "responsive", "mobile", "performance", "optimize"];
+  if (codingKw.some(kw => lower.includes(kw))) {
+    const coder = memberIds.find(id => CODER_IDS.includes(id));
+    if (coder) return coder;
+  }
+  // Social media
+  if (["social", "post", "tweet", "x.com", "twitter", "instagram", "facebook", "linkedin", "content", "trend", "hashtag", "viral"].some(kw => lower.includes(kw))) {
+    return memberIds.find(id => id === "maya") ?? memberIds[0];
+  }
+  // SEO/website
+  if (["seo", "google", "search ranking", "keywords", "meta tag", "sitemap"].some(kw => lower.includes(kw))) {
+    return memberIds.find(id => id === "sally") ?? memberIds[0];
+  }
+  // Legal
+  if (["legal", "contract", "gdpr", "privacy policy", "terms", "agreement", "compliance", "lawsuit"].some(kw => lower.includes(kw))) {
+    return memberIds.find(id => id === "lex") ?? memberIds[0];
+  }
+  // Scheduling/admin
+  if (["schedule", "calendar", "meeting", "appointment", "email", "reminder", "organize", "admin"].some(kw => lower.includes(kw))) {
+    return memberIds.find(id => id === "evie") ?? memberIds[0];
+  }
+  // Leads/business
+  if (["lead", "prospect", "client", "sales", "outreach", "business development", "pipeline"].some(kw => lower.includes(kw))) {
+    return memberIds.find(id => id === "leo") ?? memberIds[0];
+  }
+  // Default: first member
+  return memberIds[0];
+}
+
 async function handleGroup(
   inScopeAgentIds: string[],
   allMemberIds: string[],
@@ -255,598 +315,214 @@ async function handleGroup(
   replyToAgentId: string | undefined,
   sendEvent: (e: Record<string, unknown>) => void,
 ) {
-  // Reorder: if replying to someone, put them first
-  let orderedIds = inScopeAgentIds;
-  if (replyToAgentId && inScopeAgentIds.includes(replyToAgentId)) {
-    orderedIds = [replyToAgentId, ...inScopeAgentIds.filter((id) => id !== replyToAgentId)];
+  // Determine which agent(s) to call
+  const mentionedIds = inScopeAgentIds;
+  if (mentionedIds.length === 0) {
+    sendEvent({ type: "error", message: "No agents available to respond." });
+    return;
   }
 
-  const configs = orderedIds.map((id) => getAgentConfig(id)).filter(Boolean);
-  if (configs.length === 0) return;
+  // Pick the first agent to respond
+  let currentAgentId: string;
+  if (replyToAgentId && allMemberIds.includes(replyToAgentId)) {
+    currentAgentId = replyToAgentId;
+  } else if (!isImplicitRouting && mentionedIds.length > 0) {
+    // User @mentioned specific agents — start with the first one
+    currentAgentId = mentionedIds[0];
+  } else {
+    // No mention — pick by content
+    currentAgentId = pickAgentByContent(content, allMemberIds);
+  }
 
-  // ─── SMART AGENT FILTERING ───
-  // Only include agents relevant to the message. This prevents non-coders
-  // from chiming in on coding tasks, etc. No rules needed — if an agent
-  // isn't in the prompt, they can't respond.
-  const isCodingTeam = chatId === "group-coding-team" || chatId === "coding-team";
-  const isAllTeam = chatId === "group-all-team" || chatId === "all-team";
+  // Track which agents have spoken (to prevent infinite loops)
+  const spokenAgents = new Set<string>();
+  // Track conversation context for handoffs
+  const conversationContext: { agentId: string; text: string }[] = [];
+  const MAX_HANDOFFS = 3;
 
-  const coderIds = ["zack", "kevin", "beepbop"];
-  const nonCoderIds = ["maya", "leo", "sally", "evie", "lex"];
+  for (let handoff = 0; handoff <= MAX_HANDOFFS; handoff++) {
+    if (spokenAgents.has(currentAgentId)) {
+      console.log(`[group] ${currentAgentId} already spoke — stopping handoff chain`);
+      break;
+    }
+    spokenAgents.add(currentAgentId);
 
-  // Detect if this is a coding-related message
-  const lowerContent = content.toLowerCase();
-  const codingKeywords = ["code", "bug", "fix", "edit", "refactor", "deploy", "file", "github", "commit", "push", "build", "css", "ui", "component", "api", "route", "function", "typescript", "react", "next", "sidebar", "layout", "page", "style", "design", "glassmorphism", "app", "website", "frontend", "backend", "database", "supabase", "netlify", "tool", "error", "crash", "glitch", "broken", "update", "upgrade", "improve", "change", "add", "create", "remove", "delete", "clean", "polish", "responsive", "mobile", "performance", "optimize", "seo"];
-  const isCodingMessage = codingKeywords.some(kw => lowerContent.includes(kw));
+    const config = getAgentConfig(currentAgentId);
+    if (!config) {
+      console.log(`[group] No config for ${currentAgentId} — stopping`);
+      break;
+    }
 
-  // Filter agents based on message type
-  let activeAgentIds: string[];
-  if (isCodingTeam) {
-    // Coding team chat — only coders, but filter by who's in scope
-    activeAgentIds = orderedIds.filter(id => coderIds.includes(id));
-  } else if (isAllTeam) {
-    // All Team — if coding message, only coders. Otherwise include all in-scope.
-    if (isCodingMessage) {
-      activeAgentIds = orderedIds.filter(id => coderIds.includes(id));
-    } else {
-      // Non-coding message in All Team — include non-coders, exclude coders
-      // unless message explicitly mentions them
-      const mentionsCoder = coderIds.some(id => lowerContent.includes(id) || lowerContent.includes(getAgentConfig(id)?.name?.toLowerCase() ?? ""));
-      if (mentionsCoder) {
-        activeAgentIds = orderedIds;
-      } else {
-        activeAgentIds = orderedIds.filter(id => !coderIds.includes(id) || nonCoderIds.length === 0);
-        // If no non-coders in scope, fall back to all
-        if (activeAgentIds.length === 0) activeAgentIds = orderedIds;
+    const isCoder = CODER_IDS.includes(currentAgentId);
+    const model = getModel(isCoder ? "smart" : "cheap");
+    const tools = getToolsForAgent(config.tools);
+
+    // Set agent context for tools
+    (globalThis as Record<string, unknown>).__currentAgentId = currentAgentId;
+
+    // Build history
+    const historyMessages: ModelMessage[] = recentMessages.map((m) => {
+      if (m.senderType === "human") return { role: "user", content: m.content } as ModelMessage;
+      return { role: "assistant", content: m.content } as ModelMessage;
+    });
+
+    // Add conversation context from previous agents in this chain
+    const contextMessages: ModelMessage[] = [];
+    for (const ctx of conversationContext) {
+      const ctxConfig = getAgentConfig(ctx.agentId);
+      contextMessages.push({
+        role: "assistant",
+        content: `${ctxConfig?.name ?? ctx.agentId}: ${ctx.text}`,
+      } as ModelMessage);
+    }
+
+    // Build system prompt — simple, focused on ONE agent
+    const memory = await loadAgentMemory(currentAgentId);
+    const isCodingChat = CODER_IDS.some(id => allMemberIds.includes(id));
+
+    // Fetch opened repos if this is a coding agent
+    let reposSection = "";
+    if (isCoder && isCodingChat) {
+      const { data: openedRepos } = await supabase
+        .from("github_repos")
+        .select("owner, repo_name")
+        .order("opened_at", { ascending: false });
+      if (openedRepos && openedRepos.length > 0) {
+        reposSection = `\n## Opened Repos\n${openedRepos.map((r: any) => `- ${r.owner}/${r.repo_name}`).join("\n")}\nOnly access repos from this list.`;
       }
     }
-  } else {
-    // Custom group — use all in-scope agents
-    activeAgentIds = orderedIds;
-  }
 
-  // If reply-to is set, make sure that agent is included
-  if (replyToAgentId && !activeAgentIds.includes(replyToAgentId)) {
-    activeAgentIds = [replyToAgentId, ...activeAgentIds];
-  }
+    // Team context — who else is available
+    const teamMembers = allMemberIds.map(id => {
+      const c = getAgentConfig(id);
+      return c ? `${c.name} (@${c.name})` : id;
+    }).join(", ");
 
-  // If filtering removed everyone, fall back to original
-  if (activeAgentIds.length === 0) activeAgentIds = orderedIds;
+    const systemPrompt = `${config.persona}
 
-  // Use filtered agents for the prompt
-  const activeConfigs = activeAgentIds.map((id) => getAgentConfig(id)).filter(Boolean);
-  if (activeConfigs.length === 0) return;
-
-  const agentRoster = activeConfigs.map((c) => `- ${c!.name} (${c!.id}): ${c!.role}`).join("\n");
-
-  const personaSections = activeConfigs.map((c) =>
-    `### ${c!.name} (id: ${c!.id})\n${c!.persona}`
-  ).join("\n\n");
-
-  // Load memories for active agents only
-  const memorySections = await Promise.all(
-    activeConfigs.map((c) => loadAgentMemory(c!.id))
-  );
-  const memoryBlock = memorySections.filter(Boolean).length > 0
-    ? `\n## Memories\n${memorySections.filter(Boolean).join("\n")}`
-    : "";
-
-  // Fetch opened repos for coding agents
-  let openedReposList = "";
-  const hasCoders = activeAgentIds.some(id => coderIds.includes(id));
-  if (hasCoders) {
-    const { data: openedRepos } = await supabase
-      .from("github_repos")
-      .select("owner, repo_name")
-      .order("opened_at", { ascending: false });
-    if (openedRepos && openedRepos.length > 0) {
-      openedReposList = openedRepos.map((r: any) => `- ${r.owner}/${r.repo_name}`).join("\n");
-    }
-  }
-
-  const replyContext = replyToAgentId
-    ? `\nThe user is replying to ${getAgentConfig(replyToAgentId)?.name ?? "someone"}. That agent responds first.`
-    : "";
-
-  // ─── Clean, short system prompt ───
-  const systemPrompt = `You are a team of AI assistants in a group chat. Respond as the agents below.
-
-## Agents
-${agentRoster}
-
-## Personas
-${personaSections}
-${memoryBlock}
+## Context
+You are in a group chat with: ${teamMembers}.
+The user just sent a message. Respond as ${config.name}.
+${memory ? `\n## Memories\n${memory}` : ""}
+${reposSection}
 
 ## Rules
 - Keep it PG-rated. No profanity, sexual content, violence, or illegal stuff.
 - Be casual like Slack. Short messages.
-- Format: start each agent's message with [agent_id] in brackets.
-- Only agents listed above can respond. If you're not listed, don't respond.
-- One agent responds unless another has something real to add.
-- Don't respond just to agree or praise. Silence > noise.
-- If using tools, still produce a text response with [agent_id] markers after.${replyContext}
-
-${hasCoders ? `## Code Tools
+- You can @mention another team member if you want their input. Example: "Let me check with @Zack on the architecture side."
+- Only @mention someone if you genuinely need their input. Don't just pass the buck.
+- If you can answer yourself, just answer. Don't @mention unnecessarily.
+${isCoder ? `
+## Code Tools
 You have REAL GitHub tools. CALL them — don't write tool names as text.
-
-Opened repos:
-${openedReposList || "(none — tell user to open repos on the Repos page)"}
-
-How to work:
-1. Read files with github_read_file (do all reads in one step)
-2. Edit files with github_edit_file (content = FULL file, not a diff)
-3. Report what you did with [agent_id] markers
-
-Rules:
-- DO the work, then report. Don't announce, don't suggest, don't plan — just do it.
+- Read files with github_read_file, edit with github_edit_file (content = FULL file)
 - github_edit_file pushes to GitHub → Netlify auto-builds. No deploy tool needed.
 - Broad tasks = edit MULTIPLE files. One edit is not done. Keep going.
-- No placeholder content. Every file must be fully functional.
-- No new dependencies. Use only installed packages.
-- Read before editing. Always.
-- You have 50 steps. Use them.` : ''}
+- No placeholder content. No new dependencies. Read before editing.
+- DO the work, then report. Don't announce, don't suggest — just do it.` : `
+## Tools
+Only use tools when the user EXPLICITLY asks for something that needs one. Don't use tools proactively.`}
 
 ## Continue
-If the user says "continue", look at history and keep doing what you were doing. Don't ask "continue with what?"`;
+If the user says "continue", look at history and keep doing what you were doing.`;
 
-  // Build history
-  const historyMessages: ModelMessage[] = recentMessages.map((m) => {
-    if (m.senderType === "human") return { role: "user", content: m.content } as ModelMessage;
-    const agent = getAgentConfig(m.senderId);
-    return { role: "assistant", content: `${agent?.name ?? "Agent"}: ${m.content}` } as ModelMessage;
-  });
-
-  // Add other team members context
-  const otherMembers = allMemberIds
-    .filter((id) => !inScopeAgentIds.includes(id))
-    .map((id) => getAgentConfig(id))
-    .filter(Boolean)
-    .map((a) => `${a!.name} (${a!.role})`);
-
-  const userMessage = otherMembers.length > 0
-    ? `${content}\n\n[Also in this chat but not asked to respond: ${otherMembers.join(", ")}]`
-    : content;
-
-  try {
-    const model = getModel(hasCoders ? "smart" : "cheap");
-
-    // All agents get their full toolset in every chat
-    const allToolNames = new Set<string>();
-    for (const config of configs) {
-      for (const tool of config!.tools) {
-        allToolNames.add(tool);
-      }
-    }
-    const groupTools = getToolsForAgent(Array.from(allToolNames));
-
-    // Give agents tools in the main call so they can actually DO work
-    // Heartbeats during tool calls keep the Netlify connection alive
-    const hasTools = hasCoders;
-    // Set agent context for tools (use first coder if available, else first in-scope)
-    const primaryAgentId = activeAgentIds.find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? activeAgentIds[0];
-    (globalThis as Record<string, unknown>).__currentAgentId = primaryAgentId;
-    const result = streamText({
-      model,
-      system: systemPrompt,
-      messages: [
-        ...historyMessages.slice(-12, -1),
-        { role: "user", content: userMessage } as ModelMessage,
-      ],
-      tools: hasTools ? groupTools : undefined,
-      stopWhen: isStepCount(hasTools ? 50 : 1),
-      maxOutputTokens: hasTools ? 24000 : undefined,
-    });
-
-    // ─── Parse the stream for [agent_id] markers ───
-    // Use fullStream to get tool call events as they happen (keeps connection alive)
-    let fullText = "";
-    let currentAgentId: string | null = null;
-    let currentAgentText = "";
-    let buffer = "";
-    let agentIndex = 0;
-    const agentResponses: Record<string, string> = {};
-    const agentToolCallMap: Record<string, { tool: string; args: Record<string, unknown>; result?: unknown; error?: string }[]> = {};
-    let retryUsed = false;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let retryResult: any = null;
-
-    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-    // Clean markers from text that will be shown to user
-    function cleanMarkers(text: string): string {
-      return text
-        .replace(/\*?\*?\[\w+\]\*?\*?\s*/g, "")
-        .replace(/@@agent:\w+/g, "")
-        .replace(/@@end/g, "")
-        .replace(/@@action:\w+\([^)]*\)/g, "") // Strip @@action:tool(...)
-        .replace(/\/\w+\([^)]*\)/g, "") // Strip /tool(...)
-        .replace(/:\w+\([^)]*\)/g, "") // Strip :tool(...)
-        .replace(/@@\w+/g, "") // Strip any other @@ markers
-        .replace(/^\s*\n?/, "");
+    // Build the user message — include context if this is a handoff
+    let userMessage = content;
+    if (handoff > 0 && conversationContext.length > 0) {
+      const lastContext = conversationContext[conversationContext.length - 1];
+      const lastConfig = getAgentConfig(lastContext.agentId);
+      userMessage = `${lastConfig?.name ?? lastContext.agentId} said: "${lastContext.text}"\n\nThey mentioned you. Can you weigh in on this? Original request from user: "${content}"`;
     }
 
-    // Known agent IDs for validation
-    const knownAgentIds = new Set(activeAgentIds);
+    try {
+      sendEvent({ type: "agent_start", agentId: currentAgentId });
 
-    // Fallback: if model produces text without [agent_id] markers, use first agent
-    let fallbackAgentUsed = false;
+      const result = streamText({
+        model,
+        system: systemPrompt,
+        messages: [
+          ...historyMessages.slice(-10, -1),
+          ...contextMessages.slice(-3),
+          { role: "user", content: userMessage } as ModelMessage,
+        ],
+        tools,
+        stopWhen: isStepCount(isCoder ? 50 : 10),
+      });
 
-    // Stream text and tool calls — heartbeats keep Netlify alive during tool execution
-    for await (const part of result.fullStream) {
-      if (part.type === "text-delta") {
-        const delta = (part as { text: string }).text;
-        fullText += delta;
-        buffer += delta;
-      } else if (part.type === "tool-call") {
-        // Send real tool call event + heartbeat to keep connection alive
-        const toolName = (part as { toolName: string }).toolName;
-        const toolInput = (part as { input: unknown }).input;
-        // Attribute to the agent currently speaking, or the first in-scope agent
-        let toolAgentId = currentAgentId ?? activeAgentIds[0] ?? "system";
-        // If no agent is currently speaking, try to infer from tool type
-        if (!currentAgentId) {
-          const codeTools = ["github_edit_file", "github_read_file", "github_list_files", "github_list_repos", "github_delete_file", "github_get_commits", "github_review", "github_create_branch", "github_create_pr", "github_create_issue", "github_search_code", "github_list_branches", "netlify_list_deploys"];
-          if (codeTools.includes(toolName)) {
-            toolAgentId = Object.keys(agentResponses).find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? activeAgentIds.find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? "zack";
-          } else {
-            // Find an agent that has this tool
-            const agentWithTool = activeAgentIds.find(id => {
-              const config = getAgentConfig(id);
-              return config?.tools.includes(toolName);
-            });
-            if (agentWithTool) toolAgentId = agentWithTool;
-          }
-        }
-        // Track tool call per agent for persistence
-        if (!agentToolCallMap[toolAgentId]) agentToolCallMap[toolAgentId] = [];
-        agentToolCallMap[toolAgentId].push({ tool: toolName, args: toolInput as Record<string, unknown> });
-        sendEvent({ type: "tool_call", agentId: toolAgentId, tool: toolName, args: toolInput });
-        sendEvent({ type: "heartbeat", tool: toolName });
-      } else if (part.type === "tool-result") {
-        const toolName = (part as { toolName: string }).toolName;
-        const output = (part as { output: unknown }).output;
-        let toolAgentId = currentAgentId ?? activeAgentIds[0] ?? "system";
-        if (!currentAgentId) {
-          const codeTools = ["github_edit_file", "github_read_file", "github_list_files", "github_list_repos", "github_delete_file", "github_get_commits", "github_review", "github_create_branch", "github_create_pr", "github_create_issue", "github_search_code", "github_list_branches", "netlify_list_deploys"];
-          if (codeTools.includes(toolName)) {
-            toolAgentId = Object.keys(agentResponses).find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? activeAgentIds.find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? "zack";
-          } else {
-            const agentWithTool = activeAgentIds.find(id => {
-              const config = getAgentConfig(id);
-              return config?.tools.includes(toolName);
-            });
-            if (agentWithTool) toolAgentId = agentWithTool;
-          }
-        }
-        const error = (output as { error?: string })?.error;
-        // Update the tracked tool call with its result
-        if (agentToolCallMap[toolAgentId]) {
-          const pending = agentToolCallMap[toolAgentId].find(tc => tc.tool === toolName && tc.result === undefined);
+      let fullText = "";
+      const toolCalls: { tool: string; args: Record<string, unknown>; result?: unknown; error?: string }[] = [];
+
+      // Stream directly — no buffer, no markers, no parser
+      for await (const part of result.fullStream) {
+        if (part.type === "text-delta") {
+          const delta = (part as { text: string }).text;
+          fullText += delta;
+          sendEvent({ type: "token", agentId: currentAgentId, text: delta });
+        } else if (part.type === "tool-call") {
+          const toolName = (part as { toolName: string }).toolName;
+          const toolInput = (part as { input: unknown }).input;
+          sendEvent({ type: "tool_call", agentId: currentAgentId, tool: toolName, args: toolInput });
+          sendEvent({ type: "heartbeat", tool: toolName });
+          toolCalls.push({ tool: toolName, args: toolInput as Record<string, unknown> });
+        } else if (part.type === "tool-result") {
+          const toolName = (part as { toolName: string }).toolName;
+          const output = (part as { output: unknown }).output;
+          const error = (output as { error?: string })?.error;
+          const pending = toolCalls.find(tc => tc.tool === toolName && tc.result === undefined);
           if (pending) {
             pending.result = output;
             pending.error = error;
           }
-        }
-        sendEvent({ type: "tool_result", agentId: toolAgentId, tool: toolName, result: output, error });
-        sendEvent({ type: "heartbeat", tool: toolName, result: "done" });
-      }
-
-      // Process buffer for [agent_id] markers
-      while (true) {
-        if (currentAgentId === null) {
-          // Looking for [agent_id] marker
-          const match = buffer.match(/\[(\w+)\]/);
-          if (match && knownAgentIds.has(match[1])) {
-            const idx = buffer.indexOf(match[0]);
-            buffer = buffer.slice(idx + match[0].length);
-            currentAgentId = match[1];
-            buffer = buffer.replace(/^\s*\n?/, "");
-            currentAgentText = "";
-
-            // Typing delay
-            const startDelay = agentIndex === 0 ? 400 : 800 + Math.random() * 600;
-            await sleep(startDelay);
-
-            sendEvent({ type: "agent_start", agentId: currentAgentId });
-            agentIndex++;
-          } else if (buffer.match(/\[(\w+)\]/)) {
-            // Found a bracket but not a known agent — skip past it
-            const match = buffer.match(/\[(\w+)\]/)!;
-            const idx = buffer.indexOf(match[0]);
-            buffer = buffer.slice(idx + match[0].length);
-          } else {
-            // No marker found — if buffer is long enough, try to detect agent by name
-            if (buffer.length > 50 && !fallbackAgentUsed) {
-              // Check if the text starts with an agent name like "Zack:" or "Maya:"
-              const nameMatch = buffer.match(/^(?:\*?\*?)?(Zack|Maya|Leo|Sally|Evie|Lex|Kevin|Beepbop)\s*[:\-]/i);
-              if (nameMatch) {
-                const detectedId = nameMatch[1].toLowerCase();
-                if (knownAgentIds.has(detectedId)) {
-                  // Strip the name prefix from the buffer
-                  buffer = buffer.slice(nameMatch[0].length).replace(/^\s+/, "");
-                  currentAgentId = detectedId;
-                } else {
-                  currentAgentId = activeAgentIds[0];
-                }
-              } else {
-                currentAgentId = activeAgentIds[0];
-              }
-              fallbackAgentUsed = true;
-              currentAgentText = "";
-              const startDelay = agentIndex === 0 ? 400 : 800 + Math.random() * 600;
-              await sleep(startDelay);
-              sendEvent({ type: "agent_start", agentId: currentAgentId });
-              agentIndex++;
-              // Don't break — continue with this agent
-            } else {
-              if (buffer.length > 30) {
-                buffer = buffer.slice(-30);
-              }
-              break;
-            }
-          }
-        } else {
-          // Inside an agent block — check for a new [agent_id] marker
-          const match = buffer.match(/\[(\w+)\]/);
-          const newAgentIdx = match && knownAgentIds.has(match[1]) ? buffer.indexOf(match[0]) : -1;
-
-          if (newAgentIdx !== -1) {
-            // Found a new [agent_id] — flush current agent
-            const textToSend = buffer.slice(0, newAgentIdx);
-            if (textToSend) {
-              const cleaned = cleanMarkers(textToSend);
-              if (cleaned) {
-                currentAgentText += cleaned;
-                const chunks = cleaned.match(/.{1,8}/g) ?? [cleaned];
-                for (const chunk of chunks) {
-                  sendEvent({ type: "token", agentId: currentAgentId, text: chunk });
-                  await sleep(20 + Math.random() * 40);
-                }
-              }
-            }
-
-            await finalizeAgent(currentAgentId, currentAgentText, chatId, sendEvent, agentResponses, agentToolCallMap[currentAgentId]);
-            currentAgentId = null;
-            currentAgentText = "";
-            // Don't slice buffer — the [agent_id] is still there for the next iteration
-          } else {
-            // No new agent marker found, send safe portion
-            const safeLength = buffer.length - 15;
-            if (safeLength > 0) {
-              let textToSend = buffer.slice(0, safeLength);
-              textToSend = cleanMarkers(textToSend);
-              if (textToSend) {
-                currentAgentText += textToSend;
-                sendEvent({ type: "token", agentId: currentAgentId, text: textToSend });
-              }
-              buffer = buffer.slice(safeLength);
-            }
-            break;
-          }
+          sendEvent({ type: "tool_result", agentId: currentAgentId, tool: toolName, result: output, error });
+          sendEvent({ type: "heartbeat", tool: toolName, result: "done" });
         }
       }
-    }
+      markModelSuccess();
 
-    // Flush remaining buffer
-    if (currentAgentId && buffer) {
-      const cleaned = cleanMarkers(buffer).trim();
-      if (cleaned) {
-        currentAgentText += cleaned;
-        sendEvent({ type: "token", agentId: currentAgentId, text: cleaned });
-      }
-      await finalizeAgent(currentAgentId, currentAgentText, chatId, sendEvent, agentResponses, agentToolCallMap[currentAgentId]);
-    }
-
-    // If no agents responded with markers, try a fallback
-    if (!fullText.match(/\[\w+\]/) || !activeAgentIds.some((id) => fullText.includes(`[${id}]`))) {
-      // Check if tool calls actually happened — if so, the model worked but just didn't format text
-      let toolCallsHappened = false;
-      let toolCallSummary = "";
-      try {
-        const firstToolCalls = await result.toolCalls;
-        toolCallsHappened = !!(firstToolCalls && firstToolCalls.length > 0);
-        if (toolCallsHappened) {
-          toolCallSummary = "\n\n[Tool calls already completed:\n" + firstToolCalls.map((tc: { toolName: string; input: unknown }) =>
-            `- ${tc.toolName}(${JSON.stringify(tc.input).slice(0, 300)})`
-          ).join("\n") + "\n]";
-        }
-      } catch { /* ignore */ }
-
-      // If tool calls happened, DON'T advance the fallback model — the model worked, it just didn't produce text markers
-      if (!toolCallsHappened) {
-        advanceFallbackModel(hasCoders ? "smart" : "cheap");
-      }
-
-      try {
-        const fallbackModel = getModel(hasCoders ? "smart" : "cheap");
-
-        // Retry WITHOUT tools so the model just produces text immediately
-        const retryUserMessage = toolCallSummary
-          ? `${userMessage}\n\n${toolCallSummary}\n\nNow report what you did. Each agent that responds MUST start with [agent_id] in brackets, then their message. Example: [zack] I read the files and found 3 bugs.`
-          : `${userMessage}\n\nRespond now. Each agent MUST start with [agent_id] in brackets. Example: [zack] Here's what I found.`;
-
-        retryResult = streamText({
-          model: fallbackModel,
-          system: systemPrompt + "\n\nCRITICAL: You MUST respond with [agent_id] markers. Start each agent's message with [agent_id] in brackets. Example:\n[zack] I read the files and found 3 bugs.\n\nDO NOT skip the [agent_id] markers. DO NOT respond without them.",
-          messages: [
-            ...historyMessages.slice(-12, -1),
-            { role: "user", content: retryUserMessage } as ModelMessage,
-          ],
-          // No tools in retry — just generate text
-          stopWhen: isStepCount(1),
-          maxOutputTokens: hasCoders ? 8000 : 4000,
+      // Save the agent's message
+      const trimmed = fullText.trim();
+      if (trimmed) {
+        const agentMessageId = nanoid();
+        await supabase.from("messages").insert({
+          id: agentMessageId,
+          chat_id: chatId,
+          sender_id: currentAgentId,
+          sender_type: "agent",
+          content: trimmed,
+          mentions: [],
+          tool_calls: toolCalls,
         });
+        sendEvent({ type: "message_end", agentId: currentAgentId, messageId: agentMessageId, content: trimmed });
 
-        let retryText = "";
-        for await (const delta of retryResult.textStream) {
-          retryText += delta;
+        // Track for handoff context
+        conversationContext.push({ agentId: currentAgentId, text: trimmed });
+
+        // Check if this agent @mentioned another agent
+        const nextAgent = detectMention(trimmed, allMemberIds);
+        if (nextAgent && !spokenAgents.has(nextAgent) && handoff < MAX_HANDOFFS) {
+          console.log(`[group] ${currentAgentId} mentioned ${nextAgent} — handing off`);
+          // Small delay for natural feel
+          await new Promise(r => setTimeout(r, 500));
+          currentAgentId = nextAgent;
+          continue;
         }
+      }
 
-        // Check if fallback produced valid agent markers
-        const hasValidMarkers = activeAgentIds.some((id) =>
-          retryText.includes(`[${id}]`)
-        );
-        console.log("[chat] Retry text length:", retryText.length, "hasValidMarkers:", hasValidMarkers);
-
-        if (hasValidMarkers) {
-          fullText = retryText;
-          retryUsed = true;
-          // Parse the simple format
-          const lines = retryText.split("\n");
-          let retryAgentId: string | null = null;
-          let retryAgentText = "";
-
-          for (const line of lines) {
-            const match = line.match(/^\[(\w+)\]\s*(.*)/);
-            if (match && knownAgentIds.has(match[1])) {
-              // New agent — flush previous
-              if (retryAgentId && retryAgentText) {
-                sendEvent({ type: "agent_start", agentId: retryAgentId });
-                sendEvent({ type: "token", agentId: retryAgentId, text: retryAgentText });
-                await finalizeAgent(retryAgentId, retryAgentText, chatId, sendEvent, agentResponses, agentToolCallMap[retryAgentId]);
-              }
-              retryAgentId = match[1];
-              retryAgentText = cleanMarkers(match[2]);
-            } else if (retryAgentId) {
-              retryAgentText += "\n" + cleanMarkers(line);
-            }
-          }
-          // Flush last
-          if (retryAgentId && retryAgentText) {
-            sendEvent({ type: "agent_start", agentId: retryAgentId });
-            sendEvent({ type: "token", agentId: retryAgentId, text: retryAgentText });
-            await finalizeAgent(retryAgentId, retryAgentText, chatId, sendEvent, agentResponses, agentToolCallMap[retryAgentId]);
-          }
-        } else if (retryText.trim()) {
-          // No markers found but there IS text — send as the primary agent
-          const fallbackAgentId = hasCoders
-            ? activeAgentIds.find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? activeAgentIds[0]
-            : activeAgentIds[0];
-          if (fallbackAgentId) {
-            // Strip any fake markers from the text
-            const cleanText = retryText.replace(/^\*?\*?\[\w+\]\*?\*?\s*/, "").trim();
-            sendEvent({ type: "agent_start", agentId: fallbackAgentId });
-            sendEvent({ type: "token", agentId: fallbackAgentId, text: cleanText });
-            await finalizeAgent(fallbackAgentId, cleanText, chatId, sendEvent, agentResponses, agentToolCallMap[fallbackAgentId]);
-          }
-        } else if (toolCallsHappened) {
-          // Tool calls happened but retry produced nothing — generate a basic summary
-          const fallbackAgentId = hasCoders
-            ? activeAgentIds.find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? activeAgentIds[0]
-            : activeAgentIds[0];
-          if (fallbackAgentId) {
-            const summary = `I ran some tools but didn't produce a summary. Check the tool call results above to see what I did.`;
-            sendEvent({ type: "agent_start", agentId: fallbackAgentId });
-            sendEvent({ type: "token", agentId: fallbackAgentId, text: summary });
-            await finalizeAgent(fallbackAgentId, summary, chatId, sendEvent, agentResponses, agentToolCallMap[fallbackAgentId]);
-          }
-        } else {
-          sendEvent({
-            type: "error",
-            message: `No response generated. Try sending again.`,
-          });
-        }
-      } catch (retryErr) {
-        if (isRateLimitError(retryErr)) {
-          advanceFallbackModel(hasCoders ? "smart" : "cheap");
-        }
+      // No handoff — we're done
+      break;
+    } catch (err) {
+      if (isRateLimitError(err) || isModelError(err)) {
+        advanceFallbackModel(isCoder ? "smart" : "cheap");
+        sendEvent({ type: "error", message: `Model error. Try sending again.` });
+      } else {
         sendEvent({
           type: "error",
-          message: "No one on the team responded. Try @mentioning a specific person.",
+          message: `${config.name} failed: ${err instanceof Error ? err.message : "Unknown error"}`,
         });
       }
+      break;
+    } finally {
+      delete (globalThis as Record<string, unknown>).__currentAgentId;
     }
-
-    // ─── Emit tool calls from group mode ───
-    // Use retryResult if the fallback was used, otherwise use the original result
-    const toolSource = retryUsed && retryResult ? retryResult : result;
-    if (groupTools && toolSource) {
-      const toolCallResults = await toolSource.toolCalls;
-      const toolResultData = await toolSource.toolResults;
-      for (let i = 0; i < toolCallResults.length; i++) {
-        const tc = toolCallResults[i] as { toolName: string; input: unknown };
-        const toolName = String(tc.toolName);
-        const args = tc.input as Record<string, unknown>;
-
-        // Attribute tool calls to the agent that most likely made them
-        let toolAgentId = inScopeAgentIds[0] ?? "system";
-        // Code tools go to whichever coder responded
-        if (["github_edit_file", "github_review", "github_read_file", "github_list_files", "github_list_repos", "github_delete_file", "github_get_commits", "github_create_branch", "github_create_pr", "github_create_issue", "github_search_code", "github_list_branches", "netlify_list_deploys"].includes(toolName)) {
-          toolAgentId = Object.keys(agentResponses).find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? inScopeAgentIds.find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? "zack";
-        }
-        // Other tools go to whichever agent responded that has that tool
-        else {
-          const agentWithTool = Object.keys(agentResponses).find(id => {
-            const config = getAgentConfig(id);
-            return config?.tools.includes(toolName);
-          });
-          if (agentWithTool) toolAgentId = agentWithTool;
-        }
-
-        sendEvent({ type: "tool_call", agentId: toolAgentId, tool: toolName, args });
-        const tr = toolResultData[i] as { output: unknown } | undefined;
-        if (tr) {
-          const resultData = tr.output as unknown;
-          const error = (resultData as { error?: string })?.error;
-          sendEvent({ type: "tool_result", agentId: toolAgentId, tool: toolName, result: resultData, error });
-        }
-      }
-    }
-
-  } catch (err) {
-    if (isRateLimitError(err) || isModelError(err)) {
-      advanceFallbackModel(hasCoders ? "smart" : "cheap");
-      sendEvent({ type: "error", message: `Model error, switched to fallback. Try sending again.` });
-    } else {
-      sendEvent({
-        type: "error",
-        message: err instanceof Error ? err.message : "Unknown error",
-      });
-    }
-  } finally {
-    delete (globalThis as Record<string, unknown>).__currentAgentId;
   }
-}
-
-async function finalizeAgent(
-  agentId: string,
-  text: string,
-  chatId: string,
-  sendEvent: (e: Record<string, unknown>) => void,
-  agentResponses?: Record<string, string>,
-  agentToolCalls?: { tool: string; args: Record<string, unknown>; result?: unknown; error?: string }[],
-) {
-  // Final cleanup of any leaked markers
-  const trimmed = text
-    .replace(/\*?\*?\[\w+\]\*?\*?\s*/g, "")
-    .replace(/@@agent:\w+/g, "")
-    .replace(/@@end/g, "")
-    .trim();
-  if (!trimmed) return;
-
-  // Check for skip
-  if (trimmed === "[SKIP]" || trimmed.toLowerCase() === "[skip]") {
-    const config = getAgentConfig(agentId);
-    sendEvent({ type: "agent_skip", agentId, name: config?.name ?? agentId });
-    return;
-  }
-
-  // Track response for follow-up tool calls
-  if (agentResponses) {
-    agentResponses[agentId] = trimmed;
-  }
-
-  const agentMessageId = nanoid();
-  await supabase.from("messages").insert({
-    id: agentMessageId,
-    chat_id: chatId,
-    sender_id: agentId,
-    sender_type: "agent",
-    content: trimmed,
-    mentions: [],
-    tool_calls: agentToolCalls ?? [],
-  });
-
-  sendEvent({ type: "message_end", agentId, messageId: agentMessageId, content: trimmed });
 }

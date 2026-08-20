@@ -20,6 +20,7 @@ export type ClientChat = {
   routingMode: "mentioned_only" | "all_members";
   isDefault: boolean;
   createdAt: string;
+  unreadCount: number;
 };
 
 export type ToolCallRecord = {

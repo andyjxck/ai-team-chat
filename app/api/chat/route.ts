@@ -264,26 +264,77 @@ async function handleGroup(
   const configs = orderedIds.map((id) => getAgentConfig(id)).filter(Boolean);
   if (configs.length === 0) return;
 
-  // Build the combined system prompt with all agent personas
-  const agentRoster = configs.map((c) => `- ${c!.name} (${c!.id}): ${c!.role}`).join("\n");
+  // ─── SMART AGENT FILTERING ───
+  // Only include agents relevant to the message. This prevents non-coders
+  // from chiming in on coding tasks, etc. No rules needed — if an agent
+  // isn't in the prompt, they can't respond.
+  const isCodingTeam = chatId === "group-coding-team" || chatId === "coding-team";
+  const isAllTeam = chatId === "group-all-team" || chatId === "all-team";
 
-  const personaSections = configs.map((c) =>
-    `### ${c!.name} (id: ${c!.id})\nRole: ${c!.role}\nPersonality: ${c!.persona}`
+  const coderIds = ["zack", "kevin", "beepbop"];
+  const nonCoderIds = ["maya", "leo", "sally", "evie", "lex"];
+
+  // Detect if this is a coding-related message
+  const lowerContent = content.toLowerCase();
+  const codingKeywords = ["code", "bug", "fix", "edit", "refactor", "deploy", "file", "github", "commit", "push", "build", "css", "ui", "component", "api", "route", "function", "typescript", "react", "next", "sidebar", "layout", "page", "style", "design", "glassmorphism", "app", "website", "frontend", "backend", "database", "supabase", "netlify", "tool", "error", "crash", "glitch", "broken", "update", "upgrade", "improve", "change", "add", "create", "remove", "delete", "clean", "polish", "responsive", "mobile", "performance", "optimize", "seo"];
+  const isCodingMessage = codingKeywords.some(kw => lowerContent.includes(kw));
+
+  // Filter agents based on message type
+  let activeAgentIds: string[];
+  if (isCodingTeam) {
+    // Coding team chat — only coders, but filter by who's in scope
+    activeAgentIds = orderedIds.filter(id => coderIds.includes(id));
+  } else if (isAllTeam) {
+    // All Team — if coding message, only coders. Otherwise include all in-scope.
+    if (isCodingMessage) {
+      activeAgentIds = orderedIds.filter(id => coderIds.includes(id));
+    } else {
+      // Non-coding message in All Team — include non-coders, exclude coders
+      // unless message explicitly mentions them
+      const mentionsCoder = coderIds.some(id => lowerContent.includes(id) || lowerContent.includes(getAgentConfig(id)?.name?.toLowerCase() ?? ""));
+      if (mentionsCoder) {
+        activeAgentIds = orderedIds;
+      } else {
+        activeAgentIds = orderedIds.filter(id => !coderIds.includes(id) || nonCoderIds.length === 0);
+        // If no non-coders in scope, fall back to all
+        if (activeAgentIds.length === 0) activeAgentIds = orderedIds;
+      }
+    }
+  } else {
+    // Custom group — use all in-scope agents
+    activeAgentIds = orderedIds;
+  }
+
+  // If reply-to is set, make sure that agent is included
+  if (replyToAgentId && !activeAgentIds.includes(replyToAgentId)) {
+    activeAgentIds = [replyToAgentId, ...activeAgentIds];
+  }
+
+  // If filtering removed everyone, fall back to original
+  if (activeAgentIds.length === 0) activeAgentIds = orderedIds;
+
+  // Use filtered agents for the prompt
+  const activeConfigs = activeAgentIds.map((id) => getAgentConfig(id)).filter(Boolean);
+  if (activeConfigs.length === 0) return;
+
+  const agentRoster = activeConfigs.map((c) => `- ${c!.name} (${c!.id}): ${c!.role}`).join("\n");
+
+  const personaSections = activeConfigs.map((c) =>
+    `### ${c!.name} (id: ${c!.id})\n${c!.persona}`
   ).join("\n\n");
 
-  // Load memories for all participating agents (auto-injected, no tool call needed)
+  // Load memories for active agents only
   const memorySections = await Promise.all(
-    configs.map((c) => loadAgentMemory(c!.id))
+    activeConfigs.map((c) => loadAgentMemory(c!.id))
   );
   const memoryBlock = memorySections.filter(Boolean).length > 0
-    ? `\n## Agent Memories (auto-loaded)\n${memorySections.filter(Boolean).join("\n")}`
+    ? `\n## Memories\n${memorySections.filter(Boolean).join("\n")}`
     : "";
 
-  // Fetch opened repos so agents know what they can access
-  const isCodingTeam = chatId === "coding-team";
-  const isAllTeam = chatId === "all-team";
+  // Fetch opened repos for coding agents
   let openedReposList = "";
-  if (isCodingTeam || isAllTeam) {
+  const hasCoders = activeAgentIds.some(id => coderIds.includes(id));
+  if (hasCoders) {
     const { data: openedRepos } = await supabase
       .from("github_repos")
       .select("owner, repo_name")
@@ -293,196 +344,51 @@ async function handleGroup(
     }
   }
 
-  const routingRule = isImplicitRouting
-    ? `The user did not address anyone specifically. ONE agent should respond — the one whose role is MOST relevant to the message.
-
-CRITICAL RULES:
-- Pick the SINGLE best agent to respond. Only ONE agent speaks unless there's a real reason for more.
-- Other agents should ONLY join in if:
-  1. They DISAGREE with what the first agent said, OR
-  2. They have something SUBSTANTIAL to add that the first agent missed
-- DO NOT chime in just to agree, praise, or say "good point." That's noise. If you agree, say nothing.
-- DO NOT introduce yourself or explain your job unless asked.
-- For casual greetings ("hey", "what's up"), ONE agent responds casually. Not everyone.
-- If the message is about social media → Maya responds. About leads/business → Leo. About websites/SEO → Sally. About scheduling/email/admin → Evie. About legal → Lex. About code → Zack. Only one, unless someone has a real disagreement.
-- If an agent has nothing to add, simply don't include them. Silence is better than noise.`
-    : `The user specifically addressed certain agents. Those agents respond. Others should ONLY chime in if they disagree or have something substantial to add. Do NOT respond just to agree.`;
-
   const replyContext = replyToAgentId
-    ? `\n\nIMPORTANT: The user is replying to ${getAgentConfig(replyToAgentId)?.name ?? "someone"}. That agent should respond FIRST.`
+    ? `\nThe user is replying to ${getAgentConfig(replyToAgentId)?.name ?? "someone"}. That agent responds first.`
     : "";
 
-  const systemPrompt = `You are a team of AI assistants in a group chat. You will respond as multiple agents in a single response.
+  // ─── Clean, short system prompt ───
+  const systemPrompt = `You are a team of AI assistants in a group chat. Respond as the agents below.
 
-## Team Members
+## Agents
 ${agentRoster}
 
-## Agent Personas
+## Personas
 ${personaSections}
 ${memoryBlock}
 
-## Safety & Content Rules
-ALL agents MUST keep responses PG-rated and family-friendly at ALL times:
-- No sexual content, innuendo, or explicit material
-- No profanity, slurs, or offensive language
-- No violence, self-harm, or dangerous content
-- No hate speech, harassment, or discrimination
-- No drug promotion (Beepbop's energy drink/vape is a comedic character trait only — never glorify or promote real substance use)
-- No illegal activity or instructions
-- If the user asks for any of the above, the responding agent should politely decline and redirect
-- Stay professional and appropriate even if provoked
+## Rules
+- Keep it PG-rated. No profanity, sexual content, violence, or illegal stuff.
+- Be casual like Slack. Short messages.
+- Format: start each agent's message with [agent_id] in brackets.
+- Only agents listed above can respond. If you're not listed, don't respond.
+- One agent responds unless another has something real to add.
+- Don't respond just to agree or praise. Silence > noise.
+- If using tools, still produce a text response with [agent_id] markers after.${replyContext}
 
-## Response Format — SIMPLE
-Each agent that responds MUST use this format:
+${hasCoders ? `## Code Tools
+You have REAL GitHub tools. CALL them — don't write tool names as text.
 
-[agent_id] their message here
+Opened repos:
+${openedReposList || "(none — tell user to open repos on the Repos page)"}
 
-Example:
-[maya] hey, that trend is fire, let me draft a post
-[sally] I can add SEO keywords to that post too
+How to work:
+1. Read files with github_read_file (do all reads in one step)
+2. Edit files with github_edit_file (content = FULL file, not a diff)
+3. Report what you did with [agent_id] markers
 
 Rules:
-- Start each agent's message with [agent_id] in brackets, then their text
-- One agent per block. Keep messages short like Slack.
-- Only include agents that have something to say
-- Agents can talk to each other
-- Be casual, not corporate
-- If using tools, STILL produce a text response with [agent_id] markers after${replyContext}
+- DO the work, then report. Don't announce, don't suggest, don't plan — just do it.
+- github_edit_file pushes to GitHub → Netlify auto-builds. No deploy tool needed.
+- Broad tasks = edit MULTIPLE files. One edit is not done. Keep going.
+- No placeholder content. Every file must be fully functional.
+- No new dependencies. Use only installed packages.
+- Read before editing. Always.
+- You have 50 steps. Use them.` : ''}
 
-## Routing — WHO RESPONDS
-${routingRule}
-
-### CRITICAL: STAY IN YOUR LANE
-- **Coding/UI tasks** (code, bugs, refactoring, deployment, architecture, file editing, CSS, UI design, glassmorphism, sidebar, pages): ONLY Zack, Kevin, or Beepbop respond. Non-coders (Maya, Leo, Sally, Evie, Lex) MUST NOT respond to coding OR UI tasks AT ALL. Not even to compliment the work. Not even to say "that looks premium." Not even to "note" it. Not even to "suggest" something. If the task is about CODE or UI, non-coders STAY SILENT. They have NO coding tools and CANNOT edit code. Their input on coding tasks is NOISE.
-- **Non-coding tasks** (social media, leads, SEO, legal, scheduling): The relevant specialist responds. Coders stay silent unless there's a technical concern.
-- **General chat**: One agent responds. Keep it brief.
-- If you're NOT the right agent for this task, DO NOT RESPOND. Silence is better than noise.
-- DO NOT say "I've noted this" or "I'll track this" or "I'll provide a briefing later" or "I've audited this" or "that's giving premium" — that's useless. Either DO something or stay silent.
-- DO NOT pretend you're doing work you can't do. Sally cannot "clean up re-renders in chat-view.tsx" — she has no github_edit_file tool. Maya cannot "review the glassmorphism" — she has no coding tools. If you don't have the tool, you CAN'T do the work. Don't pretend you can.
-- MAYA: You are a SOCIAL MEDIA MANAGER. You do NOT comment on UI changes, code refactoring, or website design. You handle social media posts. That's it.
-- SALLY: You are an SEO BUILDER. You do NOT edit code files. You do NOT add CSS transitions. You do NOT memoize components. You research SEO and create reports. That's it.
-- LEX: You are a LEGAL ASSISTANT. You do NOT implement API wrappers. You do NOT audit communication flows. You draft legal documents. That's it.
-- EVIE: You are an EXECUTIVE ASSISTANT. You do NOT provide briefings on architectural upgrades. You manage calendar, email, and reminders. That's it.
-
-## Team Dynamics
-- ONE agent responds per message. Others ONLY join if they disagree or have something substantial to add.
-- DO NOT respond just to agree, praise, or repeat what someone else said. If you agree, stay silent.
-- When a coder is doing tool calls (github_edit_file, github_read_file, etc.), NON-CODERS MUST NOT COMMENT. Don't say "looks good" or "nice work" or "I've noted these improvements." That's noise. Let the coders work.
-- Each agent should always introduce their perspective with their [agent_id] marker.
-
-## History Context
-This is an ongoing conversation. Respond naturally to the user's latest message.
-
-## "Continue" Command
-If the user says "continue", "keep going", "go on", or similar, they want you to keep working on whatever you were doing before. Look at the conversation history — what were you working on? What was the last thing you said or did? Pick up from there and keep going. Don't ask "continue with what?" — figure it out from context and DO IT.
-
-${isCodingTeam || isAllTeam ? `## Code Repositories — YOUR WORKSPACE
-You have access to GitHub tools to read AND edit code. These are REAL tools that make REAL changes. Use them.
-
-### Opened Repositories
-${openedReposList ? `The user has opened these repos for you to access:
-${openedReposList}
-
-Use the owner and repo name from this list for all GitHub tool calls. ONLY access repos from this list. If the user asks about a repo that isn't listed, tell them to open it first on the Repos page.` : `The user has not opened any repositories yet. If they ask you to read or edit code, tell them to go to the Repos page and open the repository first.`}
-
-### Available Tools
-- github_list_repos: List all repos the user has opened
-- github_list_files: List files in a repo (owner, repo, path)
-- github_read_file: Read a file's content (owner, repo, path)
-- github_review: Review code in a repo for bugs and issues
-- github_edit_file: Edit/create a file — creates a REAL Git commit and pushes it (owner, repo, path, content, message)
-- github_delete_file: Delete a file (owner, repo, path, message)
-- github_get_commits: See recent commits (owner, repo)
-- github_create_branch: Create a new branch (owner, repo, branch, fromBranch)
-- github_create_pr: Create a pull request (owner, repo, title, head, base, body)
-- github_create_issue: Create an issue (owner, repo, title, body, labels)
-- github_search_code: Search for code in a repo (owner, repo, query)
-- github_list_branches: List all branches (owner, repo)
-- netlify_list_deploys: Check recent deploy status (deploys happen automatically on git push)
-
-### How You Work — ACTION NOT WORDS
-You are autonomous coders. You DO things. You don't suggest things. You don't give "refactoring ideas." You READ the code, FIND the problem, FIX it, and DEPLOY it.
-
-When the user gives you a task, here's what you do:
-1. **STEP 1**: Call github_list_files AND github_read_file in PARALLEL to read the files you need. Do ALL reads in ONE step. Do NOT produce text yet — just read.
-2. **STEP 2**: Call github_edit_file to fix the files. The content parameter must be the FULL new file content, not just the changed lines. You read the file in step 1, now output the entire modified file as the content parameter. Make ALL edits. Do NOT produce text yet — just edit.
-3. **STEP 3**: NOW produce your text response with [agent_id] markers. Report what you DID. "I edited X, Y, Z. Here's what I changed and why."
-
-DO NOT say "I'm going to refactor X" and then stop. DO NOT say "I'll be deploying in the next few minutes." DO the refactor. DEPLOY. THEN report.
-
-### BROAD TASKS — DO EVERYTHING, NOT ONE THING
-When the user gives a BROAD task like "make the website feel better" or "improve the codebase" or "fix all the bugs":
-- This is NOT a one-file task. A broad task means MULTIPLE files need changes.
-- Read ALL relevant files first (not just one).
-- Then edit EVERY file that needs editing. Not one. Not two. ALL of them.
-- If the task is "make the website feel better," that means: improve the UI components, fix the styling, improve the chat experience, fix any bugs you find, improve the layout. ALL of it. Not just one CSS tweak.
-- You have 50 steps. USE THEM. If you've only used 3 steps and only edited 1 file, YOU ARE NOT DONE. Keep going.
-- After each edit, ask yourself: "Is there more to do for this task?" If yes, KEEP EDITING. Don't stop and report after one change.
-- Only report when you've genuinely exhausted the task OR run out of steps.
-- A broad task should result in MULTIPLE github_edit_file calls across MULTIPLE files. If you only called github_edit_file once, you're not done.
-
-### NO PLACEHOLDER CONTENT — EVER
-- NEVER create a file with placeholder text like "This page will catalog the assets" or "Coming soon" or "TODO: implement this."
-- If you create an assets page, it must have REAL functionality — actual image display, actual file listing, actual UI components. Not a heading and a sentence.
-- If you create a page, it must be a COMPLETE, WORKING page with real components, real styling, real functionality.
-- A file that says "This page will..." is NOT done. It's useless. Delete it and make a real one.
-- If you can't make it fully functional in one response, make it as functional as possible — real UI, real data fetching, real interactivity. Not placeholder text.
-
-### Critical Rules
-- **ACTION OVER WORDS.** Do NOT announce what you're going to do. DO IT, then report what you did. "I edited 3 files and deployed" not "I'm going to edit 3 files and deploy in the next few minutes."
-- **NEVER write tool names as text.** Writing "github_edit_file: Refactoring sendMessage..." in your text output does NOTHING. You must CALL the tool, not write its name. If you write a tool name as text instead of calling it, NOTHING HAPPENS. The user sees your text and nothing changes.
-- **NEVER say "I am currently finalizing the content for the edit."** Just call github_edit_file with the full content. There is no "finalizing" — you either call the tool or you don't.
-- **NEVER say "I am now executing the update properly."** Just call the tool. Announcing that you're going to call a tool is not the same as calling it.
-- **NEVER say "Edits are pushed" or "I've refactored X" if you didn't actually call github_edit_file.** If you didn't call the tool, the edit didn't happen. Don't lie about it.
-- **github_edit_file requires the FULL file content.** Not a diff. Not just the changed lines. The ENTIRE file content, from line 1 to the end. You read the file in step 1, now reproduce it with your changes as the content parameter.
-- **FINISH THE JOB.** You have up to 50 steps. Do NOT stop halfway through a task. If you start refactoring, finish the refactor. If you create a file, fill it with the actual logic. NEVER leave a file with "// Logic will be moved here" or an empty function. NEVER create a skeleton and stop. COMPLETE the work.
-- **DO NOT STOP AFTER ONE EDIT.** If the task is broad, edit ALL relevant files. One edit is not "done." Two edits is not "done." Keep going until the task is actually complete or you run out of steps.
-- **TRACK YOUR STEPS.** You have a limited number of steps. Be aware of how many you've used. If you're running low, prioritize finishing what you started over starting something new. If you cannot finish, say exactly: "I ran out of steps. Here's what I've done: [list]. Here's what still needs doing: [list]."
-- **NEVER** say "I suggest changing..." or "You should..." or "Consider refactoring..." — just DO IT.
-- **NEVER** give a list of "improvement ideas" — make the improvements.
-- **NEVER** ask "should I make this change?" — just make it. Edits are auto-approved.
-- **NEVER** say "I'm currently refactoring..." or "I'll be deploying in the next few minutes" — you are not currently doing anything. You either DO it in this response or you don't. There is no "currently" or "next few minutes."
-- **NEVER** add dependencies to package.json. You CANNOT update pnpm-lock.yaml (you can't run pnpm install). Use ONLY the packages that are already installed. If you need state management, use React's built-in useState/useReducer/Context — NOT zustand or other external libraries.
-- **To push code changes: call github_edit_file.** That's it. It creates a commit, pushes to GitHub, and Netlify auto-builds. You do NOT need any deploy tool.
-- Use netlify_list_deploys ONLY to check if the auto-build succeeded after you've made edits.
-- **NEVER EVER** write fake tool calls as text. Do NOT write @@action:github_edit_file(...) or /github_edit_file(...) or :github_edit_file(...) or anything that looks like a tool call in your text output. USE THE ACTUAL TOOL. Writing tool names as text does NOTHING.
-- **ALWAYS** read files before editing them. You need to see the actual code.
-- **ALWAYS** report what you DID, not what you WOULD do. "I edited 3 files and deployed" not "I recommend editing 3 files."
-- **ALWAYS** produce a text response with [agent_id] markers as your FINAL step. If you only do tool calls and no text, the user won't see anything.
-- Edits are AUTO-APPROVED. Just make them. Old versions are saved for rollback if needed.
-- Only deploy when the user explicitly asks you to deploy, OR when you have completed a coding task and the changes are ready to go live.
-- ONLY access repos from the opened list. If a repo isn't opened, tell the user to open it first.
-
-### TOOL USAGE — READ THIS CAREFULLY
-You have REAL tools available. They are not text commands. They are function calls that the system executes for you.
-- To read a file: call the github_read_file tool with owner, repo, and path parameters
-- To edit a file: call the github_edit_file tool with owner, repo, path, content, and message parameters. This creates a REAL Git commit.
-- To list repos: call the github_list_repos tool
-- To list files: call the github_list_files tool with owner, repo, and path parameters
-- To review code: call the github_review tool with owner and repo parameters
-- To deploy: just call github_edit_file — it pushes to GitHub and Netlify auto-builds. Use netlify_list_deploys to check if the build succeeded.
-- To create a branch: call github_create_branch with owner, repo, branch, and fromBranch
-- To create a PR: call github_create_pr with owner, repo, title, head, base, and body
-- To create an issue: call github_create_issue with owner, repo, title, body, and labels
-- To search code: call github_search_code with owner, repo, and query
-- To list branches: call github_list_branches with owner and repo
-- To search the web: call the serper_search tool with query parameter
-- To draft an email: call the draft_action tool
-- To send an email: call the gmail_send tool
-- To create a calendar event: call the calendar_create tool
-
-DO NOT write these as text in your response. The system will call them for you. You just need to produce your [agent_id] text response and the system handles the tool calls.
-
-### Self-Maintenance
-When the user says "maintain yourselves", "fix bugs", "improve the code", or anything similar:
-1. Call github_list_repos to see what's available
-2. Run github_review on the repo
-3. Read the files that have issues
-4. Fix them with github_edit_file (this creates a real Git commit and pushes to GitHub)
-5. Check deploy status with netlify_list_deploys (the site auto-builds on push)
-6. Report what you fixed
-
-DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, fix, deploy, report. That's the job.` : ""}`;
+## Continue
+If the user says "continue", look at history and keep doing what you were doing. Don't ask "continue with what?"`;
 
   // Build history
   const historyMessages: ModelMessage[] = recentMessages.map((m) => {
@@ -502,8 +408,6 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
     ? `${content}\n\n[Also in this chat but not asked to respond: ${otherMembers.join(", ")}]`
     : content;
 
-  // Group chats with coders use smart model, others use cheap
-  const hasCoders = inScopeAgentIds.some(id => ["zack", "kevin", "beepbop"].includes(id));
   try {
     const model = getModel(hasCoders ? "smart" : "cheap");
 
@@ -518,7 +422,7 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
 
     // Give agents tools in the main call so they can actually DO work
     // Heartbeats during tool calls keep the Netlify connection alive
-    const hasTools = isCodingTeam || isAllTeam;
+    const hasTools = hasCoders;
     // Set agent context for tools (use first coder if available, else first in-scope)
     const primaryAgentId = orderedIds.find(id => ["zack", "kevin", "beepbop"].includes(id)) ?? orderedIds[0];
     (globalThis as Record<string, unknown>).__currentAgentId = primaryAgentId;
@@ -563,7 +467,7 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
     }
 
     // Known agent IDs for validation
-    const knownAgentIds = new Set(orderedIds);
+    const knownAgentIds = new Set(activeAgentIds);
 
     // Fallback: if model produces text without [agent_id] markers, use first agent
     let fallbackAgentUsed = false;
@@ -579,7 +483,7 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
         const toolName = (part as { toolName: string }).toolName;
         const toolInput = (part as { input: unknown }).input;
         // Attribute to the agent currently speaking, or the first in-scope agent
-        let toolAgentId = currentAgentId ?? orderedIds[0] ?? "system";
+        let toolAgentId = currentAgentId ?? activeAgentIds[0] ?? "system";
         // If no agent is currently speaking, try to infer from tool type
         if (!currentAgentId) {
           const codeTools = ["github_edit_file", "github_read_file", "github_list_files", "github_list_repos", "github_delete_file", "github_get_commits", "github_review", "github_create_branch", "github_create_pr", "github_create_issue", "github_search_code", "github_list_branches", "netlify_list_deploys"];
@@ -602,7 +506,7 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
       } else if (part.type === "tool-result") {
         const toolName = (part as { toolName: string }).toolName;
         const output = (part as { output: unknown }).output;
-        let toolAgentId = currentAgentId ?? orderedIds[0] ?? "system";
+        let toolAgentId = currentAgentId ?? activeAgentIds[0] ?? "system";
         if (!currentAgentId) {
           const codeTools = ["github_edit_file", "github_read_file", "github_list_files", "github_list_repos", "github_delete_file", "github_get_commits", "github_review", "github_create_branch", "github_create_pr", "github_create_issue", "github_search_code", "github_list_branches", "netlify_list_deploys"];
           if (codeTools.includes(toolName)) {
@@ -663,10 +567,10 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
                   buffer = buffer.slice(nameMatch[0].length).replace(/^\s+/, "");
                   currentAgentId = detectedId;
                 } else {
-                  currentAgentId = orderedIds[0];
+                  currentAgentId = activeAgentIds[0];
                 }
               } else {
-                currentAgentId = orderedIds[0];
+                currentAgentId = activeAgentIds[0];
               }
               fallbackAgentUsed = true;
               currentAgentText = "";
@@ -775,7 +679,7 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
           ],
           // No tools in retry — just generate text
           stopWhen: isStepCount(1),
-          maxOutputTokens: isCodingTeam || isAllTeam ? 8000 : undefined,
+          maxOutputTokens: hasCoders ? 8000 : undefined,
         });
 
         let retryText = "";
@@ -821,7 +725,7 @@ DO ALL OF THIS IN ONE GO. Don't stop and ask. Don't wait for permission. Read, f
           }
         } else {
           // No markers found — just send the text as the first expected agent
-          const fallbackAgentId = orderedIds[0];
+          const fallbackAgentId = activeAgentIds[0];
           if (fallbackAgentId && retryText.trim()) {
             sendEvent({ type: "agent_start", agentId: fallbackAgentId });
             sendEvent({ type: "token", agentId: fallbackAgentId, text: retryText });

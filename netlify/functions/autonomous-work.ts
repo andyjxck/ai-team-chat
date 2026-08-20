@@ -134,7 +134,7 @@ async function decideWorkTopic(
   const commitList = recentCommits.map(c => `- ${c.message}`).join("\n");
   const msgList = recentMessages.slice(-5).map(m => `${m.sender_id}: ${m.content.slice(0, 100)}`).join("\n");
 
-  const prompt = `You are Zack, a senior engineer. You're about to start an autonomous work session to improve the codebase.
+  const prompt = `You are Zack, a senior engineer. You're about to start an autonomous work session to improve the app.
 
 Available repos: ${repoList}
 Recent commits:
@@ -143,22 +143,24 @@ ${commitList}
 Recent team chat:
 ${msgList}
 
-Pick ONE small, safe, high-value improvement to make right now. Focus on:
-- Bug fixes (actual bugs you can spot from file names/structure)
-- UI/UX improvements (styling, layout, responsiveness)
-- Performance (removing unnecessary re-renders, optimizing queries)
-- Code quality (dead code, duplicated logic, missing error handling)
+Pick ONE improvement to make right now. You can change ANYTHING:
+- UI/UX: styling, layout, colors, animations, responsiveness, mobile layout
+- Features: add new functionality, improve existing features, new pages
+- Bug fixes: actual bugs you can spot
+- Performance: optimize queries, reduce re-renders
+- Code quality: dead code, duplicated logic, error handling
+- Their own code: improve the agents, tools, prompts, autonomous work system
+- Visual polish: make it look better, feel better, work better
 
-DO NOT pick:
-- Large refactors
-- New dependencies
-- Architecture changes
-- "Add tests"
+The only rules:
+- No new dependencies (use what's already installed)
+- No placeholder content — everything must be fully functional
+- Read files before editing them
 
 Respond in JSON:
-{"topic": "short description", "files": ["path/to/file1"], "description": "what to change and why"}
+{"topic": "short description", "files": ["path/to/file1", "path/to/file2"], "description": "detailed description of what to change in each file and why"}
 
-Pick something you can actually do by reading and editing 1-2 files.`;
+You can edit up to 5 files per session. Make real, visible improvements.`;
 
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
@@ -198,7 +200,7 @@ Task: ${description}
 
 Current content:
 \`\`\`
-${currentContent.slice(0, 15000)}
+${currentContent.slice(0, 30000)}
 \`\`\`
 
 Output the COMPLETE updated file. No markdown fences. No explanations. Just the raw file content.`;
@@ -299,7 +301,7 @@ export const handler = schedule("*/1 * * * *", async () => {
   let editsMade = 0;
   const editLog: string[] = [];
 
-  for (const filePath of workTopic.files.slice(0, 2)) {
+  for (const filePath of workTopic.files.slice(0, 5)) {
     console.log(`[autonomous] Reading ${filePath}...`);
     const currentContent = await readFile(repo.owner, repo.repo_name, filePath);
     if (!currentContent) {

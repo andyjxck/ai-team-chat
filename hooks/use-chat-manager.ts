@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type { ClientMessage, ClientAgent, ClientChat } from "@/db/client-types";
 
 const SYSTEM_AGENT: ClientAgent = {
@@ -235,6 +235,25 @@ export function useChatManager(
   const stopStreaming = useCallback(() => {
     abortRef.current?.abort();
   }, []);
+
+  // Autonomous work polling — when viewing coding team chat and idle, trigger autonomous work
+  useEffect(() => {
+    if (chat.id !== "coding-team") return;
+    if (isStreaming) return;
+
+    const poll = async () => {
+      try {
+        await fetch("/api/autonomous-trigger", { method: "POST" });
+      } catch { /* ignore */ }
+    };
+
+    // Poll every 30 seconds
+    const interval = setInterval(poll, 30_000);
+    // Also poll once immediately
+    poll();
+
+    return () => clearInterval(interval);
+  }, [chat.id, isStreaming]);
 
   return {
     messages,

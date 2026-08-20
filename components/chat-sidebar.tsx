@@ -15,8 +15,8 @@ function formatRelativeTime(iso: string): string {
   const diff = Math.floor((now - then) / 1000);
   if (diff < 60) return "now";
   if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
-  if (diff < 604800) return `${Math.floor(diff / 86400)}d`;
+  if (diff < 86400) return `${Math.floor(diff / 86400)}d`;
+  if (diff < 604800) return `${Math.floor(diff / 604800)}w`; // Changed to weeks for better clarity
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
@@ -28,6 +28,7 @@ type SidebarChat = {
   isDefault: boolean;
   members: { id: string; name: string; avatar: string | null; role: string }[];
   lastMessage: { content: string; createdAt: string; senderName: string } | null;
+  hasUnreadMessages?: boolean; // Added unread messages property
 };
 
 export function ChatSidebar({
@@ -132,7 +133,7 @@ export function ChatSidebar({
             {filteredGroups.map((chat) => (
               <ChatLink
                 key={chat.id}
-                chat={chat}
+                chat={{ ...chat, hasUnreadMessages: true }}
                 active={pathname === `/chat/${chat.id}`}
               />
             ))}
@@ -146,7 +147,7 @@ export function ChatSidebar({
           {filteredDms.map((chat) => (
             <ChatLink
               key={chat.id}
-              chat={chat}
+              chat={{ ...chat, hasUnreadMessages: true }}
               active={pathname === `/chat/${chat.id}`}
             />
           ))}
@@ -194,6 +195,7 @@ function ChatLink({
   const isGroup = chat.type === "group";
   const firstMember = chat.members[0];
   const isCodingTeam = chat.id === "coding-team";
+  const hasUnread = chat.hasUnreadMessages; // Get unread status
 
   return (
     <Link
@@ -216,10 +218,12 @@ function ChatLink({
             size="sm"
           />
         )}
-        <span className={cn(
-          "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2",
-          active ? "border-[hsl(var(--sidebar))] bg-green-400" : "border-[hsl(var(--sidebar))] bg-green-500/70",
-        )} />
+        {hasUnread && ( // Conditionally render the unread indicator
+          <span className={cn(
+            "absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[hsl(var(--sidebar))]",
+            active ? "bg-red-500" : "bg-red-600", // Red for unread
+          )} />
+        )}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">

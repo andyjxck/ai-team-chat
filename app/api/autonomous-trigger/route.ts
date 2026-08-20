@@ -4,8 +4,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const CODING_TEAM_CHAT_ID = "coding-team";
-const IDLE_THRESHOLD_MIN = 3;
-const WORK_COOLDOWN_MIN = 10;
+const IDLE_THRESHOLD_SEC = 10;
+const WORK_COOLDOWN_SEC = 30;
 
 export async function POST() {
   try {
@@ -24,15 +24,15 @@ export async function POST() {
     const lastAgent = recent.find(m => m.sender_type === "agent");
     const now = new Date();
 
-    const humanIdle = !lastHuman || (now.getTime() - new Date(lastHuman.created_at).getTime()) > IDLE_THRESHOLD_MIN * 60 * 1000;
+    const humanIdle = !lastHuman || (now.getTime() - new Date(lastHuman.created_at).getTime()) > IDLE_THRESHOLD_SEC * 1000;
     if (!humanIdle) {
       return Response.json({ status: "chat active" });
     }
 
     if (lastAgent) {
-      const minutesSince = (now.getTime() - new Date(lastAgent.created_at).getTime()) / (1000 * 60);
-      if (minutesSince < WORK_COOLDOWN_MIN) {
-        return Response.json({ status: "cooldown", minutesLeft: Math.ceil(WORK_COOLDOWN_MIN - minutesSince) });
+      const secondsSince = (now.getTime() - new Date(lastAgent.created_at).getTime()) / 1000;
+      if (secondsSince < WORK_COOLDOWN_SEC) {
+        return Response.json({ status: "cooldown", secondsLeft: Math.ceil(WORK_COOLDOWN_SEC - secondsSince) });
       }
     }
 

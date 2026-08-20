@@ -12,10 +12,10 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 const CODING_TEAM_CHAT_ID = "coding-team";
 
 // How long to wait after last human message before autonomous work starts
-const IDLE_THRESHOLD_MIN = 3; // 3 minutes of no human activity = idle
+const IDLE_THRESHOLD_SEC = 10; // 10 seconds of no human activity = idle
 
 // How long to wait between autonomous work sessions
-const WORK_COOLDOWN_MIN = 10; // 10 minutes between autonomous sessions
+const WORK_COOLDOWN_SEC = 30; // 30 seconds between autonomous sessions
 
 // Check if the chat is idle (no recent human messages)
 async function isChatIdle(): Promise<{ idle: boolean; lastHumanMsg: Date | null; lastAgentMsg: Date | null }> {
@@ -37,8 +37,8 @@ async function isChatIdle(): Promise<{ idle: boolean; lastHumanMsg: Date | null;
   const lastAgentTime = lastAgent ? new Date(lastAgent.created_at) : null;
   const now = new Date();
 
-  // Idle if no human message in last IDLE_THRESHOLD_MIN minutes
-  const humanIdle = !lastHumanTime || (now.getTime() - lastHumanTime.getTime()) > IDLE_THRESHOLD_MIN * 60 * 1000;
+  // Idle if no human message in last IDLE_THRESHOLD_SEC seconds
+  const humanIdle = !lastHumanTime || (now.getTime() - lastHumanTime.getTime()) > IDLE_THRESHOLD_SEC * 1000;
 
   return { idle: humanIdle, lastHumanMsg: lastHumanTime, lastAgentMsg: lastAgentTime };
 }
@@ -57,10 +57,10 @@ async function recentlyWorked(): Promise<boolean> {
 
   const lastAgentMsg = new Date(recent[0].created_at);
   const now = new Date();
-  const minutesSince = (now.getTime() - lastAgentMsg.getTime()) / (1000 * 60);
+  const secondsSince = (now.getTime() - lastAgentMsg.getTime()) / 1000;
 
-  // Always wait at least WORK_COOLDOWN_MIN after any agent message
-  return minutesSince < WORK_COOLDOWN_MIN;
+  // Always wait at least WORK_COOLDOWN_SEC after any agent message
+  return secondsSince < WORK_COOLDOWN_SEC;
 }
 
 // Get opened repos

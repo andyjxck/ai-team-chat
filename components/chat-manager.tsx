@@ -56,6 +56,18 @@ export function ChatManager({ chats, children }: { chats: SidebarChat[]; childre
     }
   }, [chatId, fetchChat]);
 
+  // Global autonomous work trigger — runs on every page while logged in
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        await fetch("/api/autonomous-trigger", { method: "POST" });
+      } catch { /* ignore */ }
+    };
+    // Poll every 30 seconds
+    const interval = setInterval(poll, 30_000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <ChatShell chats={chats} activeChatName={activeChat?.chat.name}>
       <div className="flex flex-1 flex-col overflow-hidden">

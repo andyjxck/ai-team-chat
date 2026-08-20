@@ -9,7 +9,7 @@ const SITE_URL = process.env.URL || "https://ai-team-chat.netlify.app";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
-const CODING_TEAM_CHAT_ID = "group-coding-team";
+const CODING_TEAM_CHAT_ID = "coding-team";
 
 // How long to wait after last human message before autonomous work starts
 const IDLE_THRESHOLD_MIN = 3; // 3 minutes of no human activity = idle

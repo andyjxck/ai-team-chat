@@ -74,8 +74,14 @@ export async function POST(req: NextRequest) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
+      let clientDisconnected = false;
       function sendEvent(event: Record<string, unknown>) {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        if (clientDisconnected) return; // Client gone — don't try to send
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        } catch {
+          clientDisconnected = true; // Client disconnected — stop sending but keep processing
+        }
       }
 
       try {

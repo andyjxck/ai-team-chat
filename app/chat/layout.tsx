@@ -13,7 +13,7 @@ export default async function ChatLayout({
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
 
-  const userId = session.user.id; // Get current user's ID
+  const userId = (session.user as { id?: string } | undefined)?.id ?? "local-user";
 
   const [{ data: allChats }, { data: allMembers }, { data: allAgents }, { data: allMessages }] = await Promise.all([
     supabase.from("chats").select("*"),
@@ -29,9 +29,6 @@ export default async function ChatLayout({
 
   // Map user's last viewed time for each chat
   const userLastViewed: Record<string, string | null> = {};
-  members.filter(m => m.agent_id === userId && m.agent_type === "human").forEach(m => {
-    userLastViewed[m.chat_id] = m.last_viewed_at;
-  });
 
   // Build last message map
   const lastMessageByChat: Record<string, { content: string; createdAt: string; senderName: string }> = {};

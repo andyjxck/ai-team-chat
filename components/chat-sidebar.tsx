@@ -133,7 +133,7 @@ export function ChatSidebar({
             {filteredGroups.map((chat) => (
               <ChatLink
                 key={chat.id}
-                chat={{ ...chat, hasUnreadMessages: true }}
+                chat={chat}
                 active={pathname === `/chat/${chat.id}`}
               />
             ))}
@@ -147,7 +147,7 @@ export function ChatSidebar({
           {filteredDms.map((chat) => (
             <ChatLink
               key={chat.id}
-              chat={{ ...chat, hasUnreadMessages: true }}
+              chat={chat}
               active={pathname === `/chat/${chat.id}`}
             />
           ))}

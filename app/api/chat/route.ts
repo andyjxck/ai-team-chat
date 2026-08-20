@@ -195,34 +195,83 @@ If you're unsure whether the user wants you to take action, ASK them first inste
     });
 
     let fullText = "";
-    const toolCalls: { tool: string; args: Record<string, unknown>; result?: unknown; error?: string }[] = [];
+    let currentMessageId: string | null = null;
+    let currentText = "";
+    const allToolCalls: { tool: string; args: Record<string, unknown>; result?: unknown; error?: string }[] = [];
+    let currentMessageToolCalls: { tool: string; args: Record<string, unknown>; result?: unknown; error?: string }[] = [];
+
+    // Helper to finalize the current text message and save it
+    async function flushCurrentMessage() {
+      if (currentText.trim() || currentMessageToolCalls.length > 0) {
+        const msgId = currentMessageId ?? nanoid();
+        await supabase.from("messages").insert({
+          id: msgId,
+          chat_id: chatId,
+          sender_id: agentId,
+          sender_type: "agent",
+          content: currentText.trim(),
+          mentions: [],
+          tool_calls: currentMessageToolCalls,
+        });
+        sendEvent({ type: "message_end", agentId, messageId: msgId, content: currentText.trim() });
+        fullText += currentText;
+        currentText = "";
+        currentMessageId = null;
+        currentMessageToolCalls = [];
+      }
+    }
 
     // Use fullStream to get tool calls AND text in real-time
+    // Split into separate messages: text bubble, then tool call, then new text bubble
     for await (const part of result.fullStream) {
       if (part.type === "text-delta") {
         const delta = (part as { text: string }).text;
-        fullText += delta;
+        currentText += delta;
+        if (!currentMessageId) {
+          currentMessageId = nanoid();
+          sendEvent({ type: "agent_start", agentId });
+        }
         sendEvent({ type: "token", agentId, text: delta });
       } else if (part.type === "tool-call") {
         const toolName = (part as { toolName: string }).toolName;
         const toolInput = (part as { input: unknown }).input;
+        // Flush current text as a message before the tool call
+        if (currentText.trim()) {
+          await flushCurrentMessage();
+        }
+        // Start a new message for the tool call
+        if (!currentMessageId) {
+          currentMessageId = nanoid();
+          sendEvent({ type: "agent_start", agentId });
+        }
         sendEvent({ type: "tool_call", agentId, tool: toolName, args: toolInput });
         sendEvent({ type: "heartbeat", tool: toolName });
-        toolCalls.push({ tool: toolName, args: toolInput as Record<string, unknown> });
+        const tcEntry = { tool: toolName, args: toolInput as Record<string, unknown> };
+        currentMessageToolCalls.push(tcEntry);
+        allToolCalls.push(tcEntry);
       } else if (part.type === "tool-result") {
         const toolName = (part as { toolName: string }).toolName;
         const output = (part as { output: unknown }).output;
         const error = (output as { error?: string })?.error;
         // Update the tracked tool call with its result
-        const pending = toolCalls.find(tc => tc.tool === toolName && tc.result === undefined);
+        const pending = currentMessageToolCalls.find(tc => tc.tool === toolName && tc.result === undefined);
         if (pending) {
           pending.result = output;
           pending.error = error;
         }
+        const pendingAll = allToolCalls.find(tc => tc.tool === toolName && tc.result === undefined);
+        if (pendingAll) {
+          pendingAll.result = output;
+          pendingAll.error = error;
+        }
         sendEvent({ type: "tool_result", agentId, tool: toolName, result: output, error });
         sendEvent({ type: "heartbeat", tool: toolName, result: "done" });
+        // Flush the tool call message (text was empty, just tool calls)
+        await flushCurrentMessage();
       }
     }
+    // Flush any remaining text
+    await flushCurrentMessage();
     markModelSuccess();
 
     // Log API usage
@@ -237,21 +286,9 @@ If you're unsure whether the user wants you to take action, ASK them first inste
         chatId,
         inputTokens,
         outputTokens,
-        toolCalls: toolCalls.length,
+        toolCalls: allToolCalls.length,
       });
     } catch { /* ignore usage errors */ }
-
-    const agentMessageId = nanoid();
-    await supabase.from("messages").insert({
-      id: agentMessageId,
-      chat_id: chatId,
-      sender_id: agentId,
-      sender_type: "agent",
-      content: fullText,
-      mentions: [],
-      tool_calls: toolCalls,
-    });
-    sendEvent({ type: "message_end", agentId, messageId: agentMessageId, content: fullText });
   } catch (err) {
     if (isRateLimitError(err) || isModelError(err)) {
       advanceFallbackModel(isCoder ? "smart" : "cheap");
@@ -489,33 +526,81 @@ If the user says "continue", look at history and keep doing what you were doing.
       });
 
       let fullText = "";
-      const toolCalls: { tool: string; args: Record<string, unknown>; result?: unknown; error?: string }[] = [];
+      let currentText = "";
+      let currentMsgId: string | null = null;
+      const allToolCalls: { tool: string; args: Record<string, unknown>; result?: unknown; error?: string }[] = [];
+      let currentToolCalls: { tool: string; args: Record<string, unknown>; result?: unknown; error?: string }[] = [];
 
-      // Stream directly — no buffer, no markers, no parser
+      // Helper to flush current text+tools as a message
+      async function flushGroupMessage() {
+        if (currentText.trim() || currentToolCalls.length > 0) {
+          const msgId = currentMsgId ?? nanoid();
+          await supabase.from("messages").insert({
+            id: msgId,
+            chat_id: chatId,
+            sender_id: currentAgentId,
+            sender_type: "agent",
+            content: currentText.trim(),
+            mentions: [],
+            tool_calls: currentToolCalls,
+          });
+          sendEvent({ type: "message_end", agentId: currentAgentId, messageId: msgId, content: currentText.trim() });
+          fullText += (fullText ? "\n" : "") + currentText.trim();
+          conversationContext.push({ agentId: currentAgentId, text: currentText.trim() });
+          currentText = "";
+          currentMsgId = null;
+          currentToolCalls = [];
+        }
+      }
+
+      // Stream with bubble splitting: text, tool, text, tool
       for await (const part of result.fullStream) {
         if (part.type === "text-delta") {
           const delta = (part as { text: string }).text;
-          fullText += delta;
+          currentText += delta;
+          if (!currentMsgId) {
+            currentMsgId = nanoid();
+            sendEvent({ type: "agent_start", agentId: currentAgentId });
+          }
           sendEvent({ type: "token", agentId: currentAgentId, text: delta });
         } else if (part.type === "tool-call") {
           const toolName = (part as { toolName: string }).toolName;
           const toolInput = (part as { input: unknown }).input;
+          // Flush current text before tool call
+          if (currentText.trim()) {
+            await flushGroupMessage();
+          }
+          if (!currentMsgId) {
+            currentMsgId = nanoid();
+            sendEvent({ type: "agent_start", agentId: currentAgentId });
+          }
           sendEvent({ type: "tool_call", agentId: currentAgentId, tool: toolName, args: toolInput });
           sendEvent({ type: "heartbeat", tool: toolName });
-          toolCalls.push({ tool: toolName, args: toolInput as Record<string, unknown> });
+          const tcEntry = { tool: toolName, args: toolInput as Record<string, unknown> };
+          currentToolCalls.push(tcEntry);
+          allToolCalls.push(tcEntry);
         } else if (part.type === "tool-result") {
           const toolName = (part as { toolName: string }).toolName;
           const output = (part as { output: unknown }).output;
           const error = (output as { error?: string })?.error;
-          const pending = toolCalls.find(tc => tc.tool === toolName && tc.result === undefined);
+          const pending = currentToolCalls.find(tc => tc.tool === toolName && tc.result === undefined);
           if (pending) {
             pending.result = output;
             pending.error = error;
           }
+          const pendingAll = allToolCalls.find(tc => tc.tool === toolName && tc.result === undefined);
+          if (pendingAll) {
+            pendingAll.result = output;
+            pendingAll.error = error;
+          }
           sendEvent({ type: "tool_result", agentId: currentAgentId, tool: toolName, result: output, error });
           sendEvent({ type: "heartbeat", tool: toolName, result: "done" });
+          // Flush the tool call message
+          await flushGroupMessage();
         }
       }
+      // Flush any remaining text
+      await flushGroupMessage();
       markModelSuccess();
 
       // Log API usage
@@ -528,33 +613,25 @@ If the user says "continue", look at history and keep doing what you were doing.
           chatId,
           inputTokens: usage?.inputTokens ?? 0,
           outputTokens: usage?.outputTokens ?? 0,
-          toolCalls: toolCalls.length,
+          toolCalls: allToolCalls.length,
         });
       } catch { /* ignore */ }
 
-      // Save the agent's message
+      // Use allToolCalls for auto-continue check
+      const toolCalls = allToolCalls;
       const trimmed = fullText.trim();
-      if (trimmed) {
-        const agentMessageId = nanoid();
-        await supabase.from("messages").insert({
-          id: agentMessageId,
-          chat_id: chatId,
-          sender_id: currentAgentId,
-          sender_type: "agent",
-          content: trimmed,
-          mentions: [],
-          tool_calls: toolCalls,
-        });
-        sendEvent({ type: "message_end", agentId: currentAgentId, messageId: agentMessageId, content: trimmed });
-
-        // Track for handoff context
-        conversationContext.push({ agentId: currentAgentId, text: trimmed });
+      if (trimmed || toolCalls.length > 0) {
 
         // ─── Auto-continue for coders ───
         // If a coder did tool calls but the response seems incomplete
         // (didn't mention "done", "complete", "finished", or still has work to do),
         // automatically continue with another call
-        if (isCoder && toolCalls.length > 0 && handoff < MAX_HANDOFFS) {
+        // BUT: don't continue if any tool was blocked (prevents loops)
+        const hasBlockedTool = toolCalls.some(tc => {
+          const result = tc.result as Record<string, unknown> | undefined;
+          return result?.blocked === true || result?.error !== undefined;
+        });
+        if (isCoder && toolCalls.length > 0 && !hasBlockedTool && handoff < MAX_HANDOFFS) {
           const completionWords = ["done", "complete", "finished", "all set", "that's it", "nothing more", "wrapped up", "pushed", "deployed"];
           const looksComplete = completionWords.some(w => trimmed.toLowerCase().includes(w));
           const hasMoreWork = trimmed.toLowerCase().includes("still need") || trimmed.toLowerCase().includes("next step") || trimmed.toLowerCase().includes("more to do") || trimmed.toLowerCase().includes("continue");
@@ -563,12 +640,12 @@ If the user says "continue", look at history and keep doing what you were doing.
             console.log(`[group] Auto-continue for ${currentAgentId} — response seems incomplete (${toolCalls.length} tool calls, looksComplete=${looksComplete})`);
             // Don't add to spokenAgents so the same agent can continue
             spokenAgents.delete(currentAgentId);
-            // Update content to "continue" for the next iteration
-            // We'll use a special flag instead
             handoff++;
-            // Keep the same agent, just continue
             continue;
           }
+        }
+        if (hasBlockedTool) {
+          console.log(`[group] ${currentAgentId} had a blocked/errored tool — stopping auto-continue to prevent loop`);
         }
 
         // Check if this agent @mentioned another agent

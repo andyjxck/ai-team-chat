@@ -15,7 +15,7 @@ const CODING_TEAM_CHAT_ID = "coding-team";
 const IDLE_THRESHOLD_MIN = 3; // 3 minutes of no human activity = idle
 
 // How long to wait between autonomous work sessions
-const WORK_COOLDOWN_MIN = 5; // 5 minutes between autonomous sessions
+const WORK_COOLDOWN_MIN = 10; // 10 minutes between autonomous sessions
 
 // Check if the chat is idle (no recent human messages)
 async function isChatIdle(): Promise<{ idle: boolean; lastHumanMsg: Date | null; lastAgentMsg: Date | null }> {
@@ -59,15 +59,7 @@ async function recentlyWorked(): Promise<boolean> {
   const now = new Date();
   const minutesSince = (now.getTime() - lastAgentMsg.getTime()) / (1000 * 60);
 
-  // If the last agent message was less than WORK_COOLDOWN_MIN ago, skip
-  // But if it was an autonomous work message (starts with 🔧), allow continuation
-  const isAutonomous = recent[0].content?.startsWith("🔧") || recent[0].content?.startsWith("🤖");
-  
-  if (isAutonomous && minutesSince < 2) {
-    // Recent autonomous work — wait a bit
-    return true;
-  }
-  
+  // Always wait at least WORK_COOLDOWN_MIN after any agent message
   return minutesSince < WORK_COOLDOWN_MIN;
 }
 

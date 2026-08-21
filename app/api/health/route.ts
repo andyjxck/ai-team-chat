@@ -13,13 +13,17 @@ export async function GET() {
   ];
 
   const status: Record<string, boolean> = {};
+  let allKeysOk = true;
   for (const key of keys) {
     const val = process.env[key];
     status[key] = !!val && !val.startsWith("replace_with_");
+    if (!status[key]) {
+      allKeysOk = false;
+    }
   }
 
   return Response.json({
-    ok: true,
+    ok: allKeysOk,
     model: process.env.AI_MODEL_ID ?? "google/gemini-2.0-flash-exp",
     keys: status,
   });

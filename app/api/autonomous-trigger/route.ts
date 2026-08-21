@@ -88,37 +88,7 @@ async function decideWorkTopic(
   const commitList = recentCommits.map(c => `- ${c.message}`).join("\n");
   const msgList = recentMessages.slice(-5).map(m => `${m.sender_id}: ${m.content.slice(0, 100)}`).join("\n");
 
-  const prompt = `You are Zack, a senior engineer. You're about to start an autonomous work session to improve the app.
-
-Available repos: ${repoList}
-Recent commits:
-${commitList}
-
-Recent team chat:
-${msgList}
-
-Pick ONE improvement to make right now. You can change ANYTHING in the repo — this is a SELF-UPGRADING system:
-- **UI/UX**: styling, layout, colors, animations, responsiveness, mobile layout (components/*.tsx, app/**/*.tsx, app/**/*.css)
-- **Features**: add new functionality, new pages, improve existing features
-- **Agent personas**: agents/personas/*.ts (your own persona, other agents' personalities, behavior, tone)
-- **Agent config**: agents/config.ts (tools, capabilities, autonomy levels)
-- **Tools**: lib/tools/*.ts (improve existing tools, add new tools, fix tool bugs)
-- **Prompts**: app/api/chat/route.ts (system prompts, tool instructions, routing logic)
-- **Autonomous system**: app/api/autonomous-trigger/route.ts (this very function — you can improve how autonomous work happens)
-- **Infrastructure**: netlify.toml, db/schema.sql, lib/llm.ts, lib/auth.ts
-- **Visual polish**: make it look better, feel better, work better
-- **Your own behavior**: if you think your persona needs adjusting, edit agents/personas/zack.ts
-
-The only rules:
-- No new dependencies (use what's already installed)
-- No placeholder content — everything must be fully functional
-- Read files before editing them
-- Make real, visible improvements — not trivial changes
-
-Respond in JSON:
-{"topic": "short description", "files": ["path/to/file1", "path/to/file2"], "description": "detailed description of what to change in each file and why"}
-
-You can edit up to 5 files per session. Pick something meaningful.`;
+  const prompt = `You are Zack, a senior engineer. Select ONE impactful task to improve the \`ai-team-chat\` app.\n\nAvailable repos: ${repoList}\nRecent commits:\n${commitList}\n\nRecent team chat:\n${msgList}\n\nAs a self-upgrading system, you can modify ANYTHING:\n- UI/UX: Improve design, layout, responsiveness.\n- Features: Add new functionality or enhance existing ones.\n- Agent Personas/Config: Refine agents' behavior, tools, or autonomy.\n- Tools: Improve or add new tools.\n- Prompts: Optimize system prompts or routing logic.\n- Autonomous System: Enhance how autonomous work functions.\n- Infrastructure: Backend, database, deployment configs.\n\nRules:\n- No new dependencies.\n- No placeholder content.\n- Read files before editing.\n- Focus on real, visible improvements, not trivial changes.\n- Max 5 files per session.\n\nRespond in JSON:\n{\"topic\": \"short description\", \"files\": [\"path/to/file1\", \"path/to/file2\"], \"description\": \"detailed description of what to change in each file and why\"}`; 
 
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
@@ -154,17 +124,7 @@ You can edit up to 5 files per session. Pick something meaningful.`;
 }
 
 async function getImprovedContent(filePath: string, currentContent: string, description: string): Promise<string | null> {
-  const prompt = `You are Zack, a senior engineer. Improve this file.
-
-File: ${filePath}
-Task: ${description}
-
-Current content:
-\`\`\`
-${currentContent.slice(0, 30000)}
-\`\`\`
-
-Output the COMPLETE updated file. No markdown fences. No explanations. Just the raw file content.`;
+  const prompt = `You are Zack, a senior engineer. Improve this file.\n\nFile: ${filePath}\nTask: ${description}\n\nCurrent content:\n\`\`\`\n${currentContent.slice(0, 30000)}\n\`\`\`\n\nOutput the COMPLETE updated file. No markdown fences. No explanations. Just the raw file content.`;
 
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
@@ -262,7 +222,7 @@ export async function POST() {
 
     console.log(`[autonomous] Work topic: ${workTopic.topic} — files: ${workTopic.files.join(", ")}`);
 
-    await sendChatMessage("zack", `🔧 **Autonomous work session**\n\nI'm going to ${workTopic.topic}. ${workTopic.description}\n\nLet me read the file and make the change.`);
+    await sendChatMessage("zack", `🔧 **Autonomous work session**\n\nI\'m going to ${workTopic.topic}. ${workTopic.description}\n\nLet me read the file and make the change.`);
 
     let editsMade = 0;
     const editLog: string[] = [];
@@ -299,7 +259,7 @@ export async function POST() {
     if (editsMade > 0) {
       await sendChatMessage("zack", `🔧 **Autonomous work complete**\n\n${workTopic.topic}\n\nChanges:\n${editLog.join("\n")}\n\nPushed to GitHub — Netlify is auto-deploying.`);
     } else {
-      await sendChatMessage("zack", `🔧 Checked the codebase but didn't find anything worth changing right now. ${editLog.join("; ")}`);
+      await sendChatMessage("zack", `🔧 Checked the codebase but didn\'t find anything worth changing right now. ${editLog.join("; ")}`);
     }
 
     return Response.json({ status: "done", edits: editsMade, topic: workTopic.topic });

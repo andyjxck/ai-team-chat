@@ -88,7 +88,7 @@ async function decideWorkTopic(
   const commitList = recentCommits.map(c => `- ${c.message}`).join("\n");
   const msgList = recentMessages.slice(-5).map(m => `${m.sender_id}: ${m.content.slice(0, 100)}`).join("\n");
 
-  const prompt = `You are Zack, a senior engineer. Identify ONE impactful improvement for the \`ai-team-chat\` app.
+  const prompt = `You are Zack, a senior engineer. Your goal is to identify ONE impactful improvement for the \`ai-team-chat\` app.
 
 Context:
 Available repos: ${repoList}
@@ -106,15 +106,20 @@ Improvement Categories:
 - Autonomous Core: Enhance autonomous work functionality.
 - Infrastructure: Improve backend, database, or deployment.
 
-Constraints:
+Instructions for selecting an improvement:
+1.  **Broader Impact & Variety**: Consider all available improvement categories equally. Strive for diversity in the types of tasks selected over time, avoiding a narrow focus on self-referential improvements (e.g., only improving the autonomous core).
+2.  **User-Facing Priority**: Prioritize tasks that have a clear and positive impact on the end-user experience, overall application functionality, or stability.
+3.  **Novelty**: Look for areas that haven't been addressed recently or represent a different type of improvement compared to past autonomous sessions. Avoid repetitive tasks.
+4.  **Real & Impactful**: Focus on real, impactful improvements over minor tweaks.
+
+Strict Constraints:
 - Use existing dependencies only.
 - Avoid placeholder content.
 - Always read files before editing.
-- Prioritize real, impactful improvements over minor tweaks.
 - Limit changes to a maximum of 5 files.
 
 Your response MUST be a JSON object:
-{"topic": "Concise summary of the improvement", "files": ["path/to/file1", "path/to/file2"], "description": "Detailed explanation of the changes for each file and the rationale."}`; 
+{"topic": "Concise summary of the improvement", "files": ["path/to/file1", "path/to/file2"], "description": "Detailed explanation of the changes for each file and the rationale."}`;
 
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,

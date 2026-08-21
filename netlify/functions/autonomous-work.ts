@@ -243,24 +243,29 @@ export const handler = schedule("*/1 * * * *", async () => {
   console.log("[autonomous] Heartbeat check at", new Date().toISOString());
 
   try {
-  if (!GEMINI_API_KEY || !GITHUB_TOKEN) {
-    console.log("[autonomous] Missing API keys — skipping");
-    return { statusCode: 200, body: JSON.stringify({ status: "No keys" }) };
-  }
+    // Write a heartbeat message to the chat so we can see the function is running
+    const hasKeys = !!(GEMINI_API_KEY && GITHUB_TOKEN);
+    const { idle } = await isChatIdle();
+    const cooldown = await recentlyWorked();
 
-  // Check if chat is idle
-  const { idle, lastHumanMsg } = await isChatIdle();
-  if (!idle) {
-    console.log("[autonomous] Chat is active (recent human message) — skipping");
-    return { statusCode: 200, body: JSON.stringify({ status: "Chat active" }) };
-  }
+    console.log(`[autonomous] keys=${hasKeys} idle=${idle} cooldown=${cooldown}`);
 
-  // Check cooldown
-  const recentlyWorkedResult = await recentlyWorked();
-  if (recentlyWorkedResult) {
-    console.log("[autonomous] Recently worked — skipping (cooldown)");
-    return { statusCode: 200, body: JSON.stringify({ status: "Cooldown" }) };
-  }
+    if (!hasKeys) {
+      // Write diagnostic to chat
+      await sendChatMessage("zack", `🔧 Heartbeat: function ran but API keys are missing. GEMINI_API_KEY=${GEMINI_API_KEY ? "set" : "MISSING"} GITHUB_TOKEN=${GITHUB_TOKEN ? "set" : "MISSING"}`);
+      return { statusCode: 200, body: JSON.stringify({ status: "No keys" }) };
+    }
+
+    if (!idle) {
+      return { statusCode: 200, body: JSON.stringify({ status: "Chat active" }) };
+    }
+
+    if (cooldown) {
+      return { statusCode: 200, body: JSON.stringify({ status: "Cooldown" }) };
+    }
+
+    // Write heartbeat before starting work
+    await sendChatMessage("zack", `🔧 Heartbeat: function running, chat idle, starting work session...`);
 
   // Get opened repos
   const repos = await getOpenedRepos();

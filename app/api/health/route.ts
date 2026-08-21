@@ -8,17 +8,15 @@ export async function GET() {
   ];
 
   const status: Record<string, boolean> = {};
-  let allKeysOk = true;
   for (const key of keys) {
     const val = process.env[key];
     status[key] = !!val && !val.startsWith("replace_with_");
-    if (!status[key]) {
-      allKeysOk = false;
-    }
   }
 
+  const allRequiredKeysOk = status["GEMINI_API_KEY"] && status["SERPER_API_KEY"];
+
   return Response.json({
-    ok: allKeysOk,
+    ok: allRequiredKeysOk,
     model: process.env.AI_MODEL_ID ?? "google/gemini-2.0-flash-exp",
     keys: status,
   });

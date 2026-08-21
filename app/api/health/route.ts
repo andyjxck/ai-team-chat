@@ -5,11 +5,6 @@ export async function GET() {
     "ANTHROPIC_API_KEY",
     "GROQ_API_KEY",
     "SERPER_API_KEY",
-    "GOOGLE_CLIENT_ID",
-    "X_API_KEY",
-    "LINKEDIN_CLIENT_ID",
-    "INSTAGRAM_ACCESS_TOKEN",
-    "FACEBOOK_PAGE_ID",
   ];
 
   const status: Record<string, boolean> = {};

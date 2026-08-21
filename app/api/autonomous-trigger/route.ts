@@ -86,24 +86,28 @@ ${commitList}
 Recent team chat:
 ${msgList}
 
-Pick ONE improvement to make right now. You can change ANYTHING:
-- UI/UX: styling, layout, colors, animations, responsiveness, mobile layout
-- Features: add new functionality, improve existing features, new pages
-- Bug fixes: actual bugs you can spot
-- Performance: optimize queries, reduce re-renders
-- Code quality: dead code, duplicated logic, error handling
-- Their own code: improve the agents, tools, prompts, autonomous work system
-- Visual polish: make it look better, feel better, work better
+Pick ONE improvement to make right now. You can change ANYTHING in the repo — this is a SELF-UPGRADING system:
+- **UI/UX**: styling, layout, colors, animations, responsiveness, mobile layout (components/*.tsx, app/**/*.tsx, app/**/*.css)
+- **Features**: add new functionality, new pages, improve existing features
+- **Agent personas**: agents/personas/*.ts (your own persona, other agents' personalities, behavior, tone)
+- **Agent config**: agents/config.ts (tools, capabilities, autonomy levels)
+- **Tools**: lib/tools/*.ts (improve existing tools, add new tools, fix tool bugs)
+- **Prompts**: app/api/chat/route.ts (system prompts, tool instructions, routing logic)
+- **Autonomous system**: app/api/autonomous-trigger/route.ts (this very function — you can improve how autonomous work happens)
+- **Infrastructure**: netlify.toml, db/schema.sql, lib/llm.ts, lib/auth.ts
+- **Visual polish**: make it look better, feel better, work better
+- **Your own behavior**: if you think your persona needs adjusting, edit agents/personas/zack.ts
 
 The only rules:
 - No new dependencies (use what's already installed)
 - No placeholder content — everything must be fully functional
 - Read files before editing them
+- Make real, visible improvements — not trivial changes
 
 Respond in JSON:
 {"topic": "short description", "files": ["path/to/file1", "path/to/file2"], "description": "detailed description of what to change in each file and why"}
 
-You can edit up to 5 files per session. Make real, visible improvements.`;
+You can edit up to 5 files per session. Pick something meaningful.`;
 
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,

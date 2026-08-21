@@ -16,6 +16,39 @@ export const maxDuration = 300; // 5 minutes — Netlify Pro allows up to 5 min 
 
 const CODER_IDS = ["zack", "kevin", "beepbop"];
 
+// ─── Autonomous mode state (stored in memory table with agent_id "system") ───
+async function setAutonomousRunning(running: boolean) {
+  const value = running ? "true" : "false";
+  const { data: existing } = await supabase
+    .from("memory")
+    .select("*")
+    .eq("agent_id", "system")
+    .eq("key", "autonomous_running");
+  if (existing && existing.length > 0) {
+    await supabase
+      .from("memory")
+      .update({ value, updated_at: new Date().toISOString() })
+      .eq("id", existing[0].id);
+  } else {
+    await supabase.from("memory").insert({
+      id: nanoid(),
+      agent_id: "system",
+      key: "autonomous_running",
+      value,
+    });
+  }
+}
+
+async function isAutonomousRunning(): Promise<boolean> {
+  const { data } = await supabase
+    .from("memory")
+    .select("value")
+    .eq("agent_id", "system")
+    .eq("key", "autonomous_running")
+    .limit(1);
+  return data?.[0]?.value === "true";
+}
+
 // ─── Shared prompt builder ───
 function buildToolInstructions(isCoder: boolean): string {
   return `
@@ -225,6 +258,89 @@ export async function POST(req: NextRequest) {
   };
 
   if (!chatId || !content) return new Response("Missing chatId or content", { status: 400 });
+
+  // ─── Autonomous mode commands ───
+  // User types "start" / "/auto" / "go" in coding-team to start continuous autonomous work
+  // User types "stop" / "/stop" / "halt" to stop it
+  const lowerContent = content.toLowerCase().trim();
+  const isCodingTeam = chatId === "coding-team";
+  const startCommands = ["/auto", "start auto", "start autonomous", "go", "start working", "keep working", "do it all"];
+  const stopCommands = ["/stop", "stop", "halt", "stop working", "stop auto", "stop autonomous", "that's enough"];
+
+  if (isCodingTeam) {
+    if (startCommands.some(cmd => lowerContent === cmd || lowerContent.startsWith(cmd))) {
+      // Set autonomous mode to running
+      await setAutonomousRunning(true);
+      // Save the human message
+      await supabase.from("messages").insert({
+        id: nanoid(),
+        chat_id: chatId,
+        sender_id: "local-user",
+        sender_type: "human",
+        content,
+        mentions: mentions ?? [],
+        tool_calls: [],
+      });
+      // Zack acknowledges
+      const ackId = nanoid();
+      await supabase.from("messages").insert({
+        id: ackId,
+        chat_id: chatId,
+        sender_id: "zack",
+        sender_type: "agent",
+        content: "Right. Starting continuous autonomous work. I'll keep going until you say stop. Let me find something to improve.",
+        mentions: [],
+        tool_calls: [],
+      });
+      // Return a simple SSE with the ack
+      const encoder = new TextEncoder();
+      const ackStream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "agent_start", agentId: "zack" })}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "token", agentId: "zack", text: "Right. Starting continuous autonomous work. I'll keep going until you say stop. Let me find something to improve." })}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "message_end", agentId: "zack", messageId: ackId, content: "Right. Starting continuous autonomous work. I'll keep going until you say stop. Let me find something to improve." })}\n\n`));
+          controller.close();
+        },
+      });
+      return new Response(ackStream, {
+        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
+      });
+    }
+    if (stopCommands.some(cmd => lowerContent === cmd || lowerContent.startsWith(cmd))) {
+      await setAutonomousRunning(false);
+      await supabase.from("messages").insert({
+        id: nanoid(),
+        chat_id: chatId,
+        sender_id: "local-user",
+        sender_type: "human",
+        content,
+        mentions: mentions ?? [],
+        tool_calls: [],
+      });
+      const ackId = nanoid();
+      await supabase.from("messages").insert({
+        id: ackId,
+        chat_id: chatId,
+        sender_id: "zack",
+        sender_type: "agent",
+        content: "Stopping. I'll pick up where I left off when you're ready.",
+        mentions: [],
+        tool_calls: [],
+      });
+      const encoder = new TextEncoder();
+      const stopStream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "agent_start", agentId: "zack" })}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "token", agentId: "zack", text: "Stopping. I'll pick up where I left off when you're ready." })}\n\n`));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "message_end", agentId: "zack", messageId: ackId, content: "Stopping. I'll pick up where I left off when you're ready." })}\n\n`));
+          controller.close();
+        },
+      });
+      return new Response(stopStream, {
+        headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" },
+      });
+    }
+  }
 
   const [{ data: chatRows }, { data: memberRows }] = await Promise.all([
     supabase.from("chats").select("*").eq("id", chatId),

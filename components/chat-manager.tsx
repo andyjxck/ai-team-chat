@@ -56,19 +56,35 @@ export function ChatManager({ chats, children }: { chats: SidebarChat[]; childre
     }
   }, [chatId, fetchChat]);
 
-  // Global autonomous work trigger — runs on every page while logged in
+  // Global autonomous work trigger — polls the autonomous trigger
+  // When autonomous mode is running, polls every 5s for fast iteration
+  // When stopped, polls every 30s just to check if it's been started
+  const [autoRunning, setAutoRunning] = useState(false);
   useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
     const poll = async () => {
       try {
-        await fetch("/api/autonomous-trigger", { method: "POST" });
+        const res = await fetch("/api/autonomous-trigger", { method: "POST" });
+        if (res.ok) {
+          const data = await res.json();
+          // If it did work, it's running — poll faster
+          if (data.status === "done" || data.status === "triggered") {
+            setAutoRunning(true);
+          } else if (data.status === "not running") {
+            setAutoRunning(false);
+          }
+        }
       } catch { /* ignore */ }
     };
-    const interval = setInterval(poll, 15_000);
+    // Poll immediately on mount
+    poll();
+    // Then set interval based on running state
+    interval = setInterval(poll, autoRunning ? 5_000 : 30_000);
     return () => clearInterval(interval);
-  }, []);
+  }, [autoRunning]);
 
-  // Live refresh: re-fetch active chat every 10s to see new messages
-  // Only updates if there are MORE messages than before (avoids losing streaming state)
+  // Live refresh: re-fetch active chat to see new messages
+  // Fast when autonomous is running (3s), normal otherwise (10s)
   useEffect(() => {
     if (!chatId) return;
     const refresh = async () => {
@@ -80,8 +96,6 @@ export function ChatManager({ chats, children }: { chats: SidebarChat[]; childre
             if (!prev) return data;
             const prevCount = prev.messages?.length ?? 0;
             const newCount = data.messages?.length ?? 0;
-            // Only update if new messages appeared AND we're not in the middle of a stream
-            // (detect streaming by checking if last message has streaming flag)
             const lastMsg = prev.messages?.[prevCount - 1];
             if (newCount > prevCount && !lastMsg?.streaming) {
               return data;
@@ -91,9 +105,9 @@ export function ChatManager({ chats, children }: { chats: SidebarChat[]; childre
         }
       } catch { /* ignore */ }
     };
-    const interval = setInterval(refresh, 10_000);
+    const interval = setInterval(refresh, autoRunning ? 3_000 : 10_000);
     return () => clearInterval(interval);
-  }, [chatId]);
+  }, [chatId, autoRunning]);
 
   return (
     <ChatShell chats={chats} activeChatName={activeChat?.chat.name}>

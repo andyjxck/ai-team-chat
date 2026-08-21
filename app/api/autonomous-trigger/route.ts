@@ -2,11 +2,22 @@ import { supabase } from "@/db/client";
 import { nanoid } from "nanoid";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 const CODING_TEAM_CHAT_ID = "coding-team";
 const IDLE_THRESHOLD_SEC = 10;
 const WORK_COOLDOWN_SEC = 30;
+
+// Check if autonomous mode is running (set by user typing "start"/"stop" in coding team)
+async function isAutonomousRunning(): Promise<boolean> {
+  const { data } = await supabase
+    .from("memory")
+    .select("value")
+    .eq("agent_id", "system")
+    .eq("key", "autonomous_running")
+    .limit(1);
+  return data?.[0]?.value === "true";
+}
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN!;
@@ -188,6 +199,12 @@ export async function POST() {
   try {
     if (!GEMINI_API_KEY || !GITHUB_TOKEN) {
       return Response.json({ status: "missing keys" });
+    }
+
+    // Check if autonomous mode is running
+    const running = await isAutonomousRunning();
+    if (!running) {
+      return Response.json({ status: "not running" });
     }
 
     // Check if chat is idle

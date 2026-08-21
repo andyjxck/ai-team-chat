@@ -6,7 +6,7 @@ export const maxDuration = 300;
 
 const CODING_TEAM_CHAT_ID = "coding-team";
 const IDLE_THRESHOLD_SEC = 10;
-const WORK_COOLDOWN_SEC = 30;
+const WORK_COOLDOWN_SEC = 10;
 
 // Check if autonomous mode is running (set by user typing "start"/"stop" in coding team)
 async function isAutonomousRunning(): Promise<boolean> {
@@ -207,7 +207,9 @@ export async function POST() {
       return Response.json({ status: "not running" });
     }
 
-    // Check if chat is idle
+    // When autonomous mode is explicitly running, skip the idle check.
+    // The user said "go" — the agents should keep working regardless of recent messages.
+    // Only apply cooldown to prevent rapid-fire duplicate work.
     const { data: recent } = await supabase
       .from("messages")
       .select("sender_type, created_at")
@@ -219,15 +221,10 @@ export async function POST() {
       return Response.json({ status: "no messages" });
     }
 
-    const lastHuman = recent.find(m => m.sender_type === "human");
     const lastAgent = recent.find(m => m.sender_type === "agent");
     const now = new Date();
 
-    const humanIdle = !lastHuman || (now.getTime() - new Date(lastHuman.created_at).getTime()) > IDLE_THRESHOLD_SEC * 1000;
-    if (!humanIdle) {
-      return Response.json({ status: "chat active" });
-    }
-
+    // Only check cooldown — skip idle check when explicitly running
     if (lastAgent) {
       const secondsSince = (now.getTime() - new Date(lastAgent.created_at).getTime()) / 1000;
       if (secondsSince < WORK_COOLDOWN_SEC) {

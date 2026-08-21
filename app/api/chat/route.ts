@@ -12,7 +12,7 @@ import { streamText, type ModelMessage, isStepCount } from "ai";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300; // 5 minutes — Netlify Pro allows up to 5 min for functions
 
 const CODER_IDS = ["zack", "kevin", "beepbop"];
 
@@ -44,6 +44,12 @@ Read before editing. No placeholder content. No new dependencies.
 
 You have up to 50 tool-call steps. A real task takes 5-15 tool calls minimum.
 If you've only made 1-2 tool calls, you're NOT DONE. Keep going.
+
+## CRITICAL: Build Verification
+After calling \`github_edit_file\`, you MUST call \`validate_build\` to check if the deploy succeeded.
+- If validate_build returns status "failed", you MUST read the error, fix the file, and edit again.
+- Do NOT declare success until validate_build returns status "success".
+- If the build fails 3 times, report the failure to the user instead of retrying forever.
 
 ## Delegation
 If a task needs another agent's expertise (e.g. architecture from Kevin, UI polish from Beepbop),
@@ -99,7 +105,16 @@ async function runAgentTurn(
   const allToolCalls: { tool: string; args: Record<string, unknown>; result?: unknown; error?: string }[] = [];
   let delegation: { to: string; task: string } | null = null;
 
+  // Time-based circuit breaker — stop before hitting the serverless wall
+  const startTime = Date.now();
+  const TIME_LIMIT_MS = isCoder ? 240_000 : 120_000; // 4 min for coders, 2 min for others
+  let timeUp = false;
+
   for await (const part of result.fullStream) {
+    if (Date.now() - startTime > TIME_LIMIT_MS) {
+      timeUp = true;
+      break;
+    }
     if (part.type === "text-delta") {
       const delta = (part as { text: string }).text;
       fullText += delta;
@@ -131,6 +146,11 @@ async function runAgentTurn(
         }
       }
     }
+  }
+
+  // If we hit the time limit, append a note so the agent doesn't claim false success
+  if (timeUp) {
+    fullText += "\n\n[Note: I ran out of time before finishing all the work. I'll continue next time you ask.]";
   }
 
   // Wait for finish to get usage
@@ -342,7 +362,7 @@ async function handleGroup(
   }
 
   const spokenAgents = new Set<string>();
-  const conversationContext: { agentId: string; text: string }[] = [];
+  const conversationContext: { agentId: string; text: string; toolCalls?: { tool: string; args: Record<string, unknown>; result?: unknown; error?: string }[] }[] = [];
   const MAX_HANDOFFS = 3;
 
   for (let handoff = 0; handoff <= MAX_HANDOFFS; handoff++) {
@@ -399,12 +419,22 @@ If the user says "continue", look at history and keep doing what you were doing.
     });
 
     // Add conversation context from previous agents in this chain
+    // Include execution trace (tools + results) so the next agent knows what was done
     const contextMessages: ModelMessage[] = [];
     for (const ctx of conversationContext) {
       const ctxConfig = getAgentConfig(ctx.agentId);
+      let ctxContent = `${ctxConfig?.name ?? ctx.agentId}: ${ctx.text}`;
+      if (ctx.toolCalls && ctx.toolCalls.length > 0) {
+        const trace = ctx.toolCalls.map(tc => {
+          const argsSummary = JSON.stringify(tc.args).slice(0, 200);
+          const resultSummary = tc.result ? JSON.stringify(tc.result).slice(0, 300) : "pending";
+          return `  - ${tc.tool}(${argsSummary}) → ${resultSummary}`;
+        }).join("\n");
+        ctxContent += `\nActions taken:\n${trace}`;
+      }
       contextMessages.push({
         role: "assistant",
-        content: `${ctxConfig?.name ?? ctx.agentId}: ${ctx.text}`,
+        content: ctxContent,
       } as ModelMessage);
     }
 
@@ -413,11 +443,19 @@ If the user says "continue", look at history and keep doing what you were doing.
     if (handoff > 0 && conversationContext.length > 0) {
       const lastContext = conversationContext[conversationContext.length - 1];
       const lastConfig = getAgentConfig(lastContext.agentId);
-      userMessage = `${lastConfig?.name ?? lastContext.agentId} delegated to you: "${lastContext.text}"\n\nOriginal request from user: "${content}"`;
+      userMessage = `${lastConfig?.name ?? lastContext.agentId} delegated a task to you.\nTask: "${lastContext.text}"\nOriginal request from user: "${content}"`;
+      if (lastContext.toolCalls && lastContext.toolCalls.length > 0) {
+        const trace = lastContext.toolCalls.map(tc => {
+          const argsSummary = JSON.stringify(tc.args).slice(0, 200);
+          const resultSummary = tc.result ? JSON.stringify(tc.result).slice(0, 300) : "pending";
+          return `  - ${tc.tool}(${argsSummary}) → ${resultSummary}`;
+        }).join("\n");
+        userMessage += `\nActions already taken by ${lastConfig?.name ?? lastContext.agentId}:\n${trace}`;
+      }
     }
 
     try {
-      const { text, delegation } = await runAgentTurn(
+      const { text, toolCalls, delegation } = await runAgentTurn(
         currentAgentId,
         chatId,
         systemPrompt,
@@ -427,14 +465,14 @@ If the user says "continue", look at history and keep doing what you were doing.
         sendEvent,
       );
 
-      if (text) {
-        conversationContext.push({ agentId: currentAgentId, text });
+      if (text || (toolCalls && toolCalls.length > 0)) {
+        conversationContext.push({ agentId: currentAgentId, text, toolCalls });
       }
 
       // Check for formal delegation via tool
       if (delegation && !spokenAgents.has(delegation.to) && allMemberIds.includes(delegation.to) && handoff < MAX_HANDOFFS) {
         console.log(`[group] ${currentAgentId} delegated to ${delegation.to}`);
-        conversationContext.push({ agentId: currentAgentId, text: `Delegated to ${delegation.to}: ${delegation.task}` });
+        conversationContext.push({ agentId: currentAgentId, text: `Delegated to ${delegation.to}: ${delegation.task}`, toolCalls });
         await new Promise(r => setTimeout(r, 500));
         currentAgentId = delegation.to;
         continue;

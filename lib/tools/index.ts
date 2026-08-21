@@ -13,6 +13,7 @@ import { appPerformanceLog, appPerformanceReport } from "./app-performance";
 import { draftAction } from "./draft";
 import { askQuestion } from "./ask-question";
 import { netlifyListDeploys } from "./netlify-deploy";
+import { validateBuild } from "./validate-build";
 import { proactiveMessage } from "./proactive-message";
 import { delegateTask } from "./delegate-task";
 import {
@@ -70,6 +71,7 @@ export const ALL_TOOLS = {
   netlify_list_deploys: netlifyListDeploys,
   proactive_message: proactiveMessage,
   delegate_task: delegateTask,
+  validate_build: validateBuild,
 } as const;
 
 export type ToolName = keyof typeof ALL_TOOLS;

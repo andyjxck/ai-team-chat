@@ -40,6 +40,7 @@ const CODING_TOOLS = [
   "github_search_code",
   "github_list_branches",
   "netlify_list_deploys",
+  "validate_build",
 ];
 
 export const AGENT_CONFIGS: AgentConfig[] = [

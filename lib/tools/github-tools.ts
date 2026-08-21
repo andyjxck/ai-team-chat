@@ -59,7 +59,7 @@ export const githubListFiles = tool({
 });
 
 export const githubReadFile = tool({
-  description: "Read the contents of a file from a GitHub repository. ALWAYS read a file before editing it. Only works on repos the user has opened.",
+  description: "Read the contents of a file from a GitHub repository. ALWAYS read a file before editing it. Only works on repos the user has opened. Large files are truncated to 15000 chars — if truncated, read the rest by reading specific line ranges or ask for a summary.",
   inputSchema: z.object({
     owner: z.string().describe("Repo owner (username)"),
     repo: z.string().describe("Repository name"),
@@ -71,6 +71,17 @@ export const githubReadFile = tool({
         return { error: `Repo ${owner}/${repo} is not opened. Tell the user to open it on the Repos page first.` };
       }
       const content = await readFile(owner, repo, path);
+      const MAX_CHARS = 15000;
+      if (content.length > MAX_CHARS) {
+        return {
+          path,
+          content: content.slice(0, MAX_CHARS),
+          size: content.length,
+          truncated: true,
+          totalLines: content.split("\n").length,
+          note: `File is ${content.length} chars (${content.split("\n").length} lines). Showing first ${MAX_CHARS} chars. The full file was read but truncated to save context. When editing, provide the COMPLETE file content based on what you read plus your changes.`,
+        };
+      }
       return { path, content, size: content.length };
     } catch (err) {
       return { error: err instanceof Error ? err.message : "Failed to read file" };

@@ -88,7 +88,33 @@ async function decideWorkTopic(
   const commitList = recentCommits.map(c => `- ${c.message}`).join("\n");
   const msgList = recentMessages.slice(-5).map(m => `${m.sender_id}: ${m.content.slice(0, 100)}`).join("\n");
 
-  const prompt = `You are Zack, a senior engineer. Select ONE impactful task to improve the \`ai-team-chat\` app.\n\nAvailable repos: ${repoList}\nRecent commits:\n${commitList}\n\nRecent team chat:\n${msgList}\n\nAs a self-upgrading system, you can modify ANYTHING:\n- UI/UX: Improve design, layout, responsiveness.\n- Features: Add new functionality or enhance existing ones.\n- Agent Personas/Config: Refine agents' behavior, tools, or autonomy.\n- Tools: Improve or add new tools.\n- Prompts: Optimize system prompts or routing logic.\n- Autonomous System: Enhance how autonomous work functions.\n- Infrastructure: Backend, database, deployment configs.\n\nRules:\n- No new dependencies.\n- No placeholder content.\n- Read files before editing.\n- Focus on real, visible improvements, not trivial changes.\n- Max 5 files per session.\n\nRespond in JSON:\n{\"topic\": \"short description\", \"files\": [\"path/to/file1\", \"path/to/file2\"], \"description\": \"detailed description of what to change in each file and why\"}`; 
+  const prompt = `You are Zack, a senior engineer. Identify ONE impactful improvement for the \`ai-team-chat\` app.
+
+Context:
+Available repos: ${repoList}
+Recent commits:
+${commitList}
+Recent team chat:
+${msgList}
+
+Improvement Categories:
+- UI/UX: Enhance design, layout, or responsiveness.
+- Features: Add new functionality or improve existing ones.
+- Agent Logic/Config: Refine agent behavior, tools, or autonomy.
+- Tooling: Improve or add new tools.
+- Prompts/Routing: Optimize system prompts or routing logic.
+- Autonomous Core: Enhance autonomous work functionality.
+- Infrastructure: Improve backend, database, or deployment.
+
+Constraints:
+- Use existing dependencies only.
+- Avoid placeholder content.
+- Always read files before editing.
+- Prioritize real, impactful improvements over minor tweaks.
+- Limit changes to a maximum of 5 files.
+
+Your response MUST be a JSON object:
+{"topic": "Concise summary of the improvement", "files": ["path/to/file1", "path/to/file2"], "description": "Detailed explanation of the changes for each file and the rationale."}`; 
 
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,

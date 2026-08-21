@@ -63,10 +63,37 @@ export function ChatManager({ chats, children }: { chats: SidebarChat[]; childre
         await fetch("/api/autonomous-trigger", { method: "POST" });
       } catch { /* ignore */ }
     };
-    // Poll every 30 seconds
-    const interval = setInterval(poll, 30_000);
+    const interval = setInterval(poll, 15_000);
     return () => clearInterval(interval);
   }, []);
+
+  // Live refresh: re-fetch active chat every 10s to see new messages
+  // Only updates if there are MORE messages than before (avoids losing streaming state)
+  useEffect(() => {
+    if (!chatId) return;
+    const refresh = async () => {
+      try {
+        const res = await fetch(`/api/chats/${chatId}`);
+        if (res.ok) {
+          const data = await res.json();
+          setActiveChat((prev) => {
+            if (!prev) return data;
+            const prevCount = prev.messages?.length ?? 0;
+            const newCount = data.messages?.length ?? 0;
+            // Only update if new messages appeared AND we're not in the middle of a stream
+            // (detect streaming by checking if last message has streaming flag)
+            const lastMsg = prev.messages?.[prevCount - 1];
+            if (newCount > prevCount && !lastMsg?.streaming) {
+              return data;
+            }
+            return prev;
+          });
+        }
+      } catch { /* ignore */ }
+    };
+    const interval = setInterval(refresh, 10_000);
+    return () => clearInterval(interval);
+  }, [chatId]);
 
   return (
     <ChatShell chats={chats} activeChatName={activeChat?.chat.name}>

@@ -236,40 +236,6 @@ export function useChatManager(
     abortRef.current?.abort();
   }, []);
 
-  // Auto-refresh messages when viewing coding team chat (to see autonomous work)
-  useEffect(() => {
-    if (chat.id !== "coding-team") return;
-    if (isStreaming) return;
-
-    const refresh = async () => {
-      try {
-        const res = await fetch(`/api/chats/${chat.id}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.messages) {
-            const freshMessages = data.messages.map((m: any) => ({
-              ...m,
-              mentions: m.mentions ?? [],
-              toolCalls: m.toolCalls ?? [],
-              agent: members.find((a) => a.id === m.senderId) ?? null,
-            }));
-            setMessages((prev) => {
-              const lastPrev = prev[prev.length - 1];
-              const lastFresh = freshMessages[freshMessages.length - 1];
-              if (lastPrev && lastFresh && lastPrev.id === lastFresh.id && prev.length === freshMessages.length) {
-                return prev;
-              }
-              return freshMessages;
-            });
-          }
-        }
-      } catch { /* ignore */ }
-    };
-
-    const interval = setInterval(refresh, 10_000);
-    return () => clearInterval(interval);
-  }, [chat.id, isStreaming, members]);
-
   return {
     messages,
     isStreaming,

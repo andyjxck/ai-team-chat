@@ -14,6 +14,7 @@ import { draftAction } from "./draft";
 import { askQuestion } from "./ask-question";
 import { netlifyListDeploys } from "./netlify-deploy";
 import { proactiveMessage } from "./proactive-message";
+import { delegateTask } from "./delegate-task";
 import {
   githubListRepos,
   githubListFiles,
@@ -68,6 +69,7 @@ export const ALL_TOOLS = {
   github_list_branches: githubListBranches,
   netlify_list_deploys: netlifyListDeploys,
   proactive_message: proactiveMessage,
+  delegate_task: delegateTask,
 } as const;
 
 export type ToolName = keyof typeof ALL_TOOLS;

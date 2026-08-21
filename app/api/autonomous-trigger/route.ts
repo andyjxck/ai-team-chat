@@ -127,24 +127,28 @@ You can edit up to 5 files per session. Pick something meaningful.`;
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: 1000, responseMimeType: "application/json" },
+        generationConfig: { temperature: 0.3, maxOutputTokens: 8000, responseMimeType: "application/json" },
       }),
     },
   );
 
   if (!res.ok) {
-    console.error("[autonomous] Gemini API error:", res.status, await res.text());
+    const errText = await res.text();
+    console.error("[autonomous] Gemini API error:", res.status, errText);
     return null;
   }
 
   const data = await res.json();
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) return null;
+  if (!text) {
+    console.error("[autonomous] No text in Gemini response. Finish reason:", data.candidates?.[0]?.finishReason, "Usage:", data.usageMetadata);
+    return null;
+  }
 
   try {
     return JSON.parse(text);
   } catch {
-    console.error("[autonomous] Failed to parse work topic JSON:", text);
+    console.error("[autonomous] Failed to parse work topic JSON:", text.slice(0, 200));
     return null;
   }
 }
@@ -169,7 +173,7 @@ Output the COMPLETE updated file. No markdown fences. No explanations. Just the 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 30000 },
+        generationConfig: { temperature: 0.2, maxOutputTokens: 65536 },
       }),
     },
   );

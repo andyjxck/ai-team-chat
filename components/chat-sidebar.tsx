@@ -61,7 +61,7 @@ export function ChatSidebar({
 
   return (
     <aside
-      className="m-4 flex h-[calc(100vh-32px)] w-80 flex-col overflow-hidden rounded-3xl border border-white/10 bg-gray-900/40 shadow-2xl backdrop-blur-3xl transition-all hover:bg-gray-900/50"
+      className="m-4 flex h-[calc(100vh-32px)] w-80 flex-col overflow-hidden rounded-3xl border border-white/20 bg-slate-950/30 shadow-2xl backdrop-blur-2xl transition-all hover:bg-slate-950/40"
     >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-4">

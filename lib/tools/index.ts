@@ -30,6 +30,7 @@ import {
   githubSearchCode,
   githubListBranches,
 } from "./github-tools";
+import { codebaseSearch } from "./codebase-search"; // Import the new codebaseSearch tool
 
 export const ALL_TOOLS = {
   serper_search: serperSearch,
@@ -72,6 +73,7 @@ export const ALL_TOOLS = {
   proactive_message: proactiveMessage,
   delegate_task: delegateTask,
   validate_build: validateBuild,
+  codebase_search: codebaseSearch, // Add codebaseSearch to ALL_TOOLS
 } as const;
 
 export type ToolName = keyof typeof ALL_TOOLS;

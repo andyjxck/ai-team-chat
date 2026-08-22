@@ -11,6 +11,7 @@
 
 [functions]
   included_files = ["!node_modules/**/*"]
+  node_bundler = "esbuild"
 
 # Scheduled functions — defined in the function files using @netlify/functions
 # - proactive-check: agent outreach 3x/day (9am, 1pm, 5pm)

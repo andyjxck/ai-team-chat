@@ -2,7 +2,7 @@ import { supabase } from "@/db/client";
 import { nanoid } from "nanoid";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+export const maxDuration = 60;
 
 const CODING_TEAM_CHAT_ID = "coding-team";
 const IDLE_THRESHOLD_SEC = 10;

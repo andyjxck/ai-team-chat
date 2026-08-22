@@ -12,7 +12,7 @@ import { streamText, type ModelMessage, isStepCount } from "ai";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // 5 minutes — Netlify Pro allows up to 5 min for functions
+export const maxDuration = 60; // Netlify function limit — 60 seconds for all plans
 
 const CODER_IDS = ["zack", "kevin", "beepbop"];
 
@@ -147,7 +147,7 @@ async function runAgentTurn(
     system: systemPrompt,
     messages: [...historyMessages, userMessage],
     tools,
-    stopWhen: isStepCount(isCoder ? 50 : 10),
+    stopWhen: isStepCount(isCoder ? 15 : 10),
   });
 
   // Collect the full stream — text deltas are sent live for UX,
@@ -156,10 +156,16 @@ async function runAgentTurn(
   const allToolCalls: { tool: string; args: Record<string, unknown>; result?: unknown; error?: string }[] = [];
   let delegation: { to: string; task: string } | null = null;
 
-  // Time-based circuit breaker — stop before hitting the serverless wall
+  // Time-based circuit breaker — stop before hitting the 60s serverless wall
   const startTime = Date.now();
-  const TIME_LIMIT_MS = isCoder ? 240_000 : 120_000; // 4 min for coders, 2 min for others
+  const TIME_LIMIT_MS = 50_000; // 50 seconds — leaves 10s for response/persist
   let timeUp = false;
+
+  // Heartbeat: send a ping every 3 seconds to keep the SSE connection alive.
+  // Without this, Netlify kills the connection during tool execution (no data flowing).
+  const heartbeatInterval = setInterval(() => {
+    sendEvent({ type: "ping" });
+  }, 3000);
 
   for await (const part of result.fullStream) {
     if (Date.now() - startTime > TIME_LIMIT_MS) {
@@ -198,6 +204,9 @@ async function runAgentTurn(
       }
     }
   }
+
+  // Stop the heartbeat
+  clearInterval(heartbeatInterval);
 
   // If we hit the time limit, append a note so the agent doesn't claim false success
   if (timeUp) {

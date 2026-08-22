@@ -29,7 +29,7 @@ export const validateBuild = tool({
   execute: async ({ commitSha }) => {
     try {
       // Poll until the latest deploy is no longer "building" or "enqueued"
-      const maxAttempts = 18; // 18 x 5s = 90s max wait
+      const maxAttempts = 5; // 5 x 5s = 25s max wait (must fit within 50s function limit)
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const deploys = (await netlifyFetch(
           `/sites/${SITE_ID}/deploys?per_page=5`,
